@@ -227,8 +227,13 @@ export class Particle {
   }
 }
 
+/** Presupuesto dinámico de partículas (calidad / FPS). Nunca supera MAX_PARTICLES. */
+let PARTICLE_BUDGET = MAX_PARTICLES;
+export function setParticleBudget(n) { PARTICLE_BUDGET = Math.max(200, Math.min(MAX_PARTICLES, n | 0)); }
+export function particleBudget() { return PARTICLE_BUDGET; }
+
 function canAdd(particles, n = 1) {
-  return particles.length + n <= MAX_PARTICLES;
+  return particles.length + n <= PARTICLE_BUDGET;
 }
 
 export function addParticle(particles, x, y, opts) {

@@ -24,6 +24,30 @@ const _v = new THREE.Vector3();
 const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
 const SUN_DIR = new THREE.Vector3(-0.55, 0.62, -0.56).normalize();
 
+/** Trozo irregular de concreto: icosaedro con vértices desplazados (sin grietas entre caras) */
+function makeChunkGeometry(seed = 1) {
+  const geo = new THREE.IcosahedronGeometry(0.62, 0);
+  const pos = geo.attributes.position;
+  const off = new Map();
+  let r = seed * 9301 + 49297;
+  const rnd = () => { r = (r * 9301 + 49297) % 233280; return r / 233280; };
+  for (let i = 0; i < pos.count; i++) {
+    const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
+    if (!off.has(key)) off.set(key, [0.75 + rnd() * 0.5, 0.75 + rnd() * 0.5, 0.75 + rnd() * 0.5]);
+    const [a, b, c] = off.get(key);
+    pos.setXYZ(i, pos.getX(i) * a * 1.25, pos.getY(i) * b, pos.getZ(i) * c * 1.15);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const QUALITY = {
+  high: { shadow: 2048, soft: true, particles: 1800, fxScale: 1, debrisCap: 380 },
+  medium: { shadow: 1024, soft: false, particles: 1100, fxScale: 0.75, debrisCap: 260 },
+  low: { shadow: 512, soft: false, particles: 650, fxScale: 0.5, debrisCap: 170 },
+};
+export { QUALITY };
+
 function atlasUV(geo, faceRegions) {
   // BoxGeometry: grupos px,nx,py,ny,pz,nz — 4 vértices cada uno
   const uv = geo.attributes.uv;
@@ -60,13 +84,21 @@ export class Renderer3D {
   }
 
   setQuality(q) {
+    if (!QUALITY[q]) q = 'medium';
     this.quality = q;
-    const size = q === 'low' ? 1024 : 2048;
+    const Q = QUALITY[q];
+    const size = Q.shadow;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.mapSize.set(size, size);
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
     }
+    const type = Q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    if (this.renderer.shadowMap.type !== type) {
+      this.renderer.shadowMap.type = type;
+      this.scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
+    }
+    return Q;
   }
 
   setSize(w, h, dpr = 1) {
@@ -89,6 +121,8 @@ export class Renderer3D {
     const scene = this.scene;
     const fogColor = new THREE.Color(0xd8c3a6);
     scene.fog = new THREE.Fog(fogColor, 110, 340);
+    this.fogBase = fogColor.clone();
+    this.fogDust = new THREE.Color(0xb59f82);
     scene.background = fogColor;
 
     // Cielo con degradado + sol
@@ -136,6 +170,15 @@ export class Renderer3D {
     }
     this.psyLight = new THREE.PointLight(0x9a7bff, 0, 18, 2);
     scene.add(this.psyLight);
+    // Domos de onda expansiva (explosiones)
+    this.shockSpheres = [];
+    const shGeo = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(shGeo, new THREE.MeshBasicMaterial({ color: 0xffd2a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      m.visible = false; m.renderOrder = 7;
+      scene.add(m);
+      this.shockSpheres.push(m);
+    }
 
     // Texturas compartidas
     this.atlas = makeFacadeAtlas();
@@ -320,6 +363,13 @@ export class Renderer3D {
     this.debrisMesh.count = 0;
     this.debrisMesh.userData.ownMat = true;
     g.add(this.debrisMesh);
+    const chunkMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.02, flatShading: true });
+    this.chunkMesh = new THREE.InstancedMesh(makeChunkGeometry(3), chunkMat, MAX_DEBRIS + 120);
+    this.chunkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.chunkMesh.castShadow = true; this.chunkMesh.receiveShadow = true;
+    this.chunkMesh.count = 0; this.chunkMesh.frustumCulled = false;
+    this.chunkMesh.userData.ownMat = true;
+    g.add(this.chunkMesh);
     const wg = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
     this.wheelDebris = new THREE.InstancedMesh(wg, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.85 }), 120);
     this.wheelDebris.castShadow = true;
@@ -328,7 +378,7 @@ export class Renderer3D {
     g.add(this.wheelDebris);
 
     // Escombro estático (montones)
-    this.rubbleMesh = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.5, 0), new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }), MAX_RUBBLE);
+    this.rubbleMesh = new THREE.InstancedMesh(makeChunkGeometry(7), new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }), MAX_RUBBLE);
     this.rubbleMesh.castShadow = true; this.rubbleMesh.receiveShadow = true;
     this.rubbleMesh.count = 0;
     this.rubbleMesh.userData.ownMat = true;
@@ -368,6 +418,11 @@ export class Renderer3D {
     }
     this._lastSegVersion = -1;
     this._propVersion = -1;
+    // Precompila shaders (onda expansiva, trozos, anillos) para evitar tirones en la 1.ª explosión
+    const tmp = [...this.shockSpheres, ...this.rings];
+    tmp.forEach(m => { m.visible = true; });
+    try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* opcional */ }
+    tmp.forEach(m => { m.visible = false; });
   }
 
   _buildBuildings(world, g) {
@@ -445,7 +500,7 @@ export class Renderer3D {
         _m.compose(_p, _q.identity(), _s);
         mesh.setMatrixAt(i, _m);
         const top = f === seg.floorsAlive - 1;
-        const shade = seg.tintVar * (1 - dmg * 0.25) * (top && dmg > 0 ? 0.82 : 1);
+        const shade = seg.tintVar * (1 - dmg * 0.42) * (top && dmg > 0 ? 0.7 : 1);
         mesh.setColorAt(i, _v.set(_c.r * shade, _c.g * shade, _c.b * shade));
       } else {
         mesh.setMatrixAt(i, ZERO_M);
@@ -614,16 +669,16 @@ export class Renderer3D {
     this._syncRubble(world);
     this._syncCracks(world);
     this._syncParticles(world);
-    this._syncFx(world, dt);
+    this._syncFx(world, dt, game);
     this._syncVehicles(game, dt);
     this._syncCharacters(game, dt);
     this._syncPowers(game, dt);
   }
 
   _syncDebris(world) {
-    let n = 0, nw = 0;
-    const dm = this.debrisMesh, wm = this.wheelDebris;
-    const cap = dm.instanceMatrix.count, capW = wm.instanceMatrix.count;
+    let n = 0, nw = 0, nc = 0;
+    const dm = this.debrisMesh, wm = this.wheelDebris, cm = this.chunkMesh;
+    const cap = dm.instanceMatrix.count, capW = wm.instanceMatrix.count, capC = cm.instanceMatrix.count;
     for (const d of world.debris) {
       if (!d.alive) continue;
       const isWheel = d.data.carPart && d.data.carPart.startsWith('wheel');
@@ -636,6 +691,18 @@ export class Renderer3D {
         wm.setMatrixAt(nw++, _m.compose(_p, _q, _s));
         continue;
       }
+      if (d.data.chunk) {
+        if (nc >= capC) continue;
+        _p.set(d.cx * S, (d.liftZ + d.th * 0.45) * S, d.cy * S);
+        _s.set(d.w * S, d.th * S, d.h * S);
+        cm.setMatrixAt(nc, _m.compose(_p, _q, _s));
+        _c.set(d.color);
+        if (d.frozen) _c.lerp(_v.set(0.3, 0.95, 1), 0.55);
+        else if (d.grabbed) _c.lerp(_v.set(0.65, 0.5, 1), 0.5);
+        cm.setColorAt(nc, _c);
+        nc++;
+        continue;
+      }
       if (n >= cap) continue;
       _p.set(d.cx * S, (d.liftZ + d.th * 0.5) * S, d.cy * S);
       _s.set(d.w * S, d.th * S, d.h * S);
@@ -646,9 +713,10 @@ export class Renderer3D {
       dm.setColorAt(n, _c);
       n++;
     }
-    dm.count = n; wm.count = nw;
-    dm.instanceMatrix.needsUpdate = true; wm.instanceMatrix.needsUpdate = true;
+    dm.count = n; wm.count = nw; cm.count = nc;
+    dm.instanceMatrix.needsUpdate = true; wm.instanceMatrix.needsUpdate = true; cm.instanceMatrix.needsUpdate = true;
     if (dm.instanceColor) dm.instanceColor.needsUpdate = true;
+    if (cm.instanceColor) cm.instanceColor.needsUpdate = true;
   }
 
   _syncRubble(world) {
@@ -728,8 +796,8 @@ export class Renderer3D {
     }
   }
 
-  _syncFx(world) {
-    let ri = 0, li = 0;
+  _syncFx(world, dt, game) {
+    let ri = 0, li = 0, si = 0;
     for (const fx of world.fx) {
       const t = fx.life / fx.maxLife;
       if (fx.type === 'ring' && ri < this.rings.length) {
@@ -739,7 +807,15 @@ export class Renderer3D {
         const r = fx.r * S;
         m.scale.set(r, 1, r);
         m.material.color.set(fx.color);
-        m.material.opacity = Math.min(1, t * 1.6);
+        m.material.opacity = Math.min(1, t * 1.6) * (fx.alpha ?? 1);
+      } else if (fx.type === 'shockwave' && si < this.shockSpheres.length) {
+        const m = this.shockSpheres[si++];
+        m.visible = true;
+        const r = fx.r * S;
+        m.position.set(fx.x * S, 0, fx.y * S);
+        m.scale.set(r, r * 0.55, r);
+        m.material.color.set(fx.color);
+        m.material.opacity = 0.55 * t * t;
       } else if (fx.type === 'flash' && li < this.flashLights.length) {
         const l = this.flashLights[li++];
         l.position.set(fx.x * S, (fx.z || 10) * S, fx.y * S);
@@ -747,8 +823,29 @@ export class Renderer3D {
         l.intensity = fx.intensity * 900 * t;
       }
     }
-    for (; ri < this.rings.length; ri++) this.rings[ri].visible = false;
+    for (; si < this.shockSpheres.length; si++) this.shockSpheres[si].visible = false;
+    // Incendios: las 2 fuentes más cercanas a la cámara iluminan la escena
+    const tgt = this.camTarget, fires = [];
+    for (const f of world.fires) fires.push({ x: f.x, y: f.y, z: f.z + 10 });
+    if (game) for (const v of game.vehicles) if (v.alive && v.onFire > 0) fires.push({ x: v.cx, y: v.cy, z: (v.liftZ || 0) + 14 });
+    fires.sort((a, b) => Math.hypot(a.x * S - tgt.x, a.y * S - tgt.z) - Math.hypot(b.x * S - tgt.x, b.y * S - tgt.z));
+    // Reutiliza las luces de destello libres para los incendios (sin luces extra → shaders baratos)
+    const tt = performance.now() / 1000;
+    let fk = 0;
+    for (; li < this.flashLights.length && fk < fires.length; li++, fk++) {
+      const l = this.flashLights[li], f = fires[fk];
+      l.position.set(f.x * S, f.z * S, f.y * S);
+      l.color.set(0xff7a2a);
+      l.intensity = 90 + 50 * Math.sin(tt * 17 + fk * 3) + 30 * Math.sin(tt * 31 + fk);
+    }
     for (; li < this.flashLights.length; li++) this.flashLights[li].intensity = 0;
+    // Polvo en el aire tras colapsos: niebla más densa y terrosa
+    const hz = world.haze || 0;
+    const fog = this.scene.fog;
+    fog.color.copy(this.fogBase).lerp(this.fogDust, Math.min(1, hz * 1.2));
+    fog.near = 110 - 70 * hz; fog.far = 340 - 170 * hz;
+    this.scene.background = fog.color;
+    for (; ri < this.rings.length; ri++) this.rings[ri].visible = false;
   }
 
   _syncVehicles(game, dt) {

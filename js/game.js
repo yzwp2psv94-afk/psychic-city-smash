@@ -11,7 +11,8 @@ import { spawnCityTraffic, spawnParkedCars, resolveVehicleCollisions } from './v
 import { UI } from './ui.js';
 import { sfx } from './audio.js';
 import { MobileControls, ZOOM_MIN, ZOOM_MAX } from './mobile.js';
-import { Renderer3D } from './renderer3d.js';
+import { Renderer3D, QUALITY } from './renderer3d.js';
+import { setParticleBudget } from './physics.js';
 
 const ENTER_RADIUS = 42;      // px desde el borde del auto (≈4 m)
 const FORCE_PRESETS = [0.1, 0.35, 0.6, 1];
@@ -93,6 +94,12 @@ class Game {
       return;
     }
 
+    // Calidad: alta en escritorio, media en táctil; baja sola si los FPS caen (?q=high|medium|low la fija)
+    const qp = new URLSearchParams(location.search).get('q');
+    this.qualityLocked = !!QUALITY[qp];
+    const touch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0 || !!window.matchMedia?.('(pointer: coarse)').matches;
+    this.quality = QUALITY[qp] ? qp : (touch ? 'medium' : 'high');
+    this._fps = { t: 0, n: 0, warm: 0 };
     this._resize();
     window.addEventListener('resize', () => this._resize());
     this._bindInput();
@@ -110,16 +117,42 @@ class Game {
 
   _resize() {
     const sz = this.mobile ? this.mobile.getCanvasSize() : { w: window.innerWidth, h: window.innerHeight };
-    const iphone = this.mobile?.iphoneMode;
-    const dpr = Math.min(window.devicePixelRatio || 1, iphone ? 2 : 1.75);
+    const maxDpr = { high: 1.75, medium: 1.5, low: 1.1 }[this.quality] || 1.5;
+    const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
     this.r3d?.setSize(sz.w, sz.h, dpr);
-    this.r3d?.setQuality(iphone ? 'low' : 'high');
+    this._applyQuality();
     this.hud2d.width = Math.round(sz.w * dpr);
     this.hud2d.height = Math.round(sz.h * dpr);
     this.hud2d.style.width = sz.w + 'px';
     this.hud2d.style.height = sz.h + 'px';
     this.hudDpr = dpr;
     this.viewW = sz.w; this.viewH = sz.h;
+  }
+
+  _applyQuality() {
+    const Q = this.r3d?.setQuality(this.quality) || QUALITY[this.quality];
+    if (!Q) return;
+    setParticleBudget(Q.particles);
+    if (this.world) { this.world.fxScale = Q.fxScale; this.world.debrisCap = Q.debrisCap; }
+    document.body.dataset.quality = this.quality;
+  }
+
+  /** Auto-detección de FPS bajos: baja la calidad un nivel (sombras, partículas, resolución) */
+  _watchFps(dt) {
+    if (this.qualityLocked || this.paused) return;
+    const f = this._fps;
+    f.warm += dt;
+    if (f.warm < 2) return;           // ignora el arranque
+    f.t += dt; f.n++;
+    if (f.t < 2.5) return;
+    const fps = f.n / f.t;
+    f.t = 0; f.n = 0;
+    this.fps = fps;
+    if (fps < 28 && this.quality !== 'low') {
+      this.quality = this.quality === 'high' ? 'medium' : 'low';
+      f.warm = 0;
+      this._resize();
+    }
   }
 
   // ——————————————————— entrada ———————————————————
@@ -228,6 +261,8 @@ class Game {
     document.getElementById('btnPlay').onclick = () => { sfx.ui(); this.startSession(this.ui.mode); };
     document.getElementById('btnPause').onclick = () => this.togglePause();
     document.getElementById('btnEnd').onclick = () => this.endSession();
+    const endOv = document.getElementById('btnEndOv');
+    if (endOv) endOv.onclick = () => { this.paused = false; this.endSession(); };
     document.getElementById('btnResume').onclick = () => { this.paused = false; this.ui.hideOverlay(); };
     document.getElementById('btnRestart').onclick = () => this.startSession(this.mode);
     document.getElementById('btnMenu').onclick = () => {
@@ -289,6 +324,7 @@ class Game {
 
     const world = new World();
     this.world = world;
+    this._applyQuality();
     world.onExplosion = (x, y, r, p, credit) => this._explosionHits(x, y, r, p, credit);
     this.player = new Player(world.spawn.x, world.spawn.y);
     this.aim = { x: world.spawn.x, y: world.spawn.y - 120, z: 0 };
@@ -513,8 +549,10 @@ class Game {
   // ——————————————————— bucle ———————————————————
   _loop(t) {
     const now = t || performance.now();
-    const dt = Math.min(0.05, (now - (this._last || now)) / 1000);
+    const raw = (now - (this._last || now)) / 1000;
+    const dt = Math.min(0.05, raw);
     this._last = now;
+    if (this.running && raw < 1) this._watchFps(raw);
     if (this.running && this.paused) {
       const mob = this.mobile.poll(dt);
       if (mob.pause) this.togglePause();
@@ -816,6 +854,8 @@ class Game {
     }
 
     world.update(dt);
+    if (world.shake > 0) { this.addShake(Math.min(14, world.shake)); world.shake = 0; }
+    if (world.pendingScore > 0) { this.score += world.pendingScore; world.pendingScore = 0; }
 
     if (this.shakeAmt > 0) {
       this.shakeAmt *= Math.pow(0.9, dt * 60);
@@ -839,8 +879,8 @@ class Game {
       energy: player.energy,
       maxEnergy: player.maxEnergy,
       tip: this.tipTimer > 0 ? this.currentTip : (this.drivenCar
-        ? (iphone ? 'Joystick conducir · 🛑 freno · 🚗 salir · ⟲ enderezar' : 'E salir · Shift freno de mano · R enderezar · clic medio mirar')
-        : (iphone ? 'Joystick: mover · mantén presionado en el mapa: agarrar · suelta: lanzar · 2 dedos: zoom/girar'
+        ? (iphone ? '' : 'E salir · Shift freno de mano · R enderezar · clic medio mirar')
+        : (iphone ? ''
           : POWERS[this.powers.selected].tip)),
       timer: this.mode === 'timed' ? this.timer : null,
       power: this.powers.selected,

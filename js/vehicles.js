@@ -353,8 +353,8 @@ export class Vehicle {
     dustCloud(world.particles, this.cx, this.cy, 5, { color: '#555', size: 14 });
     sfx.smash();
     world.addRoadCrack(this.cx, this.cy, 0.7);
-    if (Math.random() < 0.35 + intensity * 0.3) {
-      this.onFire = 6 + Math.random() * 6;
+    if (Math.random() < 0.55 + intensity * 0.3) {
+      this.onFire = 12 + Math.random() * 10;   // autos en llamas un buen rato
       world.explosion(this.cx, this.cy, 6, 0.7, credit);
     }
   }
@@ -478,8 +478,10 @@ export class Vehicle {
     }
     if (this.onFire > 0) {
       this.onFire -= dt;
-      if (Math.random() < 0.7) fireBurst(particles, this.cx + Math.cos(this.angle) * 12, this.cy + Math.sin(this.angle) * 12, this.liftZ + 12, 1, 0.45);
-      if (Math.random() < 0.25) smokePuff(particles, this.cx, this.cy, this.liftZ + 18, { size: 9, color: '#1d1d1d', life: 2.2 });
+      if (Math.random() < 0.85) fireBurst(particles, this.cx + Math.cos(this.angle) * 12, this.cy + Math.sin(this.angle) * 12, this.liftZ + 12, 1, 0.55);
+      if (Math.random() < 0.35) fireBurst(particles, this.cx - Math.cos(this.angle) * 6, this.cy - Math.sin(this.angle) * 6, this.liftZ + 10, 1, 0.4);
+      if (Math.random() < 0.35) smokePuff(particles, this.cx, this.cy, this.liftZ + 20, { size: 11, color: '#161616', life: 3, alpha: 0.7 });
+      if (Math.random() < 0.08) sparks(particles, this.cx, this.cy, this.liftZ + 14, 1, 60, '#ffb35a');
     }
     if (this.sparkTimer > 0) {
       this.sparkTimer -= dt;

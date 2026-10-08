@@ -84,8 +84,13 @@ export class UI {
     document.getElementById('energyFill').style.width = `${(energy / maxEnergy) * 100}%`;
     if (tip != null) {
       const el = document.getElementById('hudTip');
-      const txt = isTouchUi() ? touchText(tip) : tip;
-      if (el.textContent !== txt) el.textContent = txt;
+      const touch = isTouchUi();
+      const txt = touch ? touchText(tip) : tip;
+      if (el.textContent !== txt) {
+        el.textContent = txt;
+        // En táctil el aviso aparece una vez y se desvanece
+        if (touch && txt) { el.classList.remove('fade'); void el.offsetWidth; el.classList.add('fade'); }
+      }
     }
     if (timer != null) {
       const m = Math.floor(timer / 60);
@@ -102,7 +107,7 @@ export class UI {
         else b.style.borderColor = '';
       });
       const p = POWERS[power];
-      if (p && tip == null) document.getElementById('hudTip').textContent = isTouchUi() ? touchText(p.tip) : p.tip;
+      if (p && tip == null && !isTouchUi()) document.getElementById('hudTip').textContent = p.tip;
     }
   }
 
@@ -145,6 +150,8 @@ export class UI {
     document.getElementById('overlayMsg').textContent = msg;
     document.getElementById('overlayStats').innerHTML = statsHtml;
     document.getElementById('btnResume').style.display = showResume ? '' : 'none';
+    const endOv = document.getElementById('btnEndOv');
+    if (endOv) endOv.style.display = showResume ? '' : 'none';
   }
 
   hideOverlay() {

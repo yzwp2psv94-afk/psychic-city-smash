@@ -47,13 +47,12 @@ Luego visita `http://localhost:8080`.
 
 En el menú principal:
 
-1. **Móvil · iPhone 14**: HUD táctil. En un iPhone/iPad/Android real se activa **solo** (cualquier orientación, pantalla completa); en la compu es una vista previa de 390×844.
-   - **Joystick** izquierdo: mover o conducir.
-   - **Tocar / mantener en el mapa 3D** = igual que el mouse: mantener = agarrar y cargar, arrastrar = apuntar, soltar = lanzar.
-   - **2 dedos**: pellizcar = zoom de la cámara (no de la página), deslizar = girar cámara. Botones **− / +** (zoom) y **↺ / ↻** (girar).
-   - **⚡ Poder**: mantener = agarrar/cargar, arrastrar el dedo = mover la mira, soltar = lanzar.
-   - **💥 Slam** rápido, **🚗 Entrar**, **🧊 Atrapar**, **↗ Redirigir**, **🛑 Freno**, **⟲** (enderezar/cámara). Pausa arriba a la derecha.
-   - Slider **Fuerza** sobre el joystick y barra de poderes 1–5 abajo (tocar = elegir).
+1. **Móvil · iPhone 14**: controles táctiles tipo **mando** (se activan solos en iPhone/iPad/Android, pantalla completa en horizontal o vertical).
+   - **Pulgar izquierdo**: joystick (mover / conducir) y, encima, una **cruceta de poderes** (↑ TK · → Onda · ↓ Aplastar · ← Slam · centro 🛡 Escudo).
+   - **Pulgar derecho**: rombo de 4 botones: **⚡ PODER** (grande, abajo: mantener = agarrar/cargar, arrastrar = apuntar, soltar = lanzar), **💥 Slam**, **🧊 Atrapar**, **↗ Redirigir**; al lado **🚗 Entrar**, **🛑 Freno** y **⟲** enderezar.
+   - **Gatillos** en las esquinas: **L1 / R1** = zoom − / +, **L2 / R2** = girar cámara.
+   - **⏸ Pausa** arriba al centro (en la pausa está *Fin sesión*). HUD compacto; los avisos aparecen una vez y se desvanecen.
+   - Tocar / mantener en el mapa 3D = igual que el mouse. **2 dedos**: pellizcar = zoom, deslizar = girar.
    - En escritorio: **Ctrl + rueda** = zoom (rueda sola = fuerza).
 2. **Control Bluetooth**: Gamepad API (se puede combinar con el layout iPhone).
 
@@ -86,6 +85,15 @@ En el menú principal:
   - Grietas y cráteres en el asfalto.
 - Partículas (polvo, humo, fuego, chispas, vidrio, energía psíquica) en dos capas de `Points` con shader propio y tope de 1800.
 - Autos low-poly hechos con primitivas: abolladuras por vértice en el punto de impacto, vidrios que se agrietan y rompen, pintura chamuscada y piezas que se desprenden (capó, puertas, defensa, ruedas).
+
+## Destrucción cinematográfica (v2.1)
+
+- **Fractura irregular**: cada piso que cae suelta trozos de concreto/ladrillo de tamaños desiguales que salen girando hacia afuera, con chispas y vidrio.
+- **Colapso estructural en cascada**: si ~22 % de las columnas de un edificio quedan debilitadas, el edificio entero **se hunde piso por piso** (cada vez más rápido), con polvo que escapa por el perímetro y una gran nube final que rueda por la calle, cráter y **polvo en el aire** (la niebla se vuelve terrosa y luego se despeja).
+- **Explosiones** con domo de onda expansiva, anillo, destello, chispas, humo y sacudida de cámara proporcional.
+- **Autos en llamas** durante 12–22 s, con humo negro y luz de fuego parpadeante.
+- Los escombros **persisten** (con tope por rendimiento; los más viejos se vuelven montones estáticos).
+- **Calidad automática**: alta en escritorio, media en táctil; si los FPS bajan de ~28 baja sola (sombras 2048→1024→512, partículas 1800→1100→650, menos trozos, menor resolución). Forzar con `?q=high|medium|low`.
 
 ## Poderes psíquicos
 

@@ -102,6 +102,12 @@ export class World {
     this.segVersion = 0;
     this.propVersion = 0;
     this.dirtySegs = [];
+    // Cine de destrucción
+    this.shake = 0;          // sacudida acumulada (la consume Game)
+    this.haze = 0;           // polvo en el aire tras colapsos (niebla)
+    this.pendingScore = 0;   // puntos de colapsos en cascada (crédito al jugador)
+    this.debrisCap = this.debrisCap || MAX_DEBRIS;
+    this.fxScale = this.fxScale || 1;
 
     const W = this.w, H = this.h;
     const roadPos = [];
@@ -222,7 +228,8 @@ export class World {
     const actualH = rows * CELL;
     const ox = bx + (bw - actualW) / 2;
     const oy = by + (bh - actualH) / 2;
-    const b = { id: bid, x: ox, y: oy, w: actualW, h: actualH, floors, tint, segs: [], cols, rows };
+    const b = { id: bid, x: ox, y: oy, w: actualW, h: actualH, floors, tint, segs: [], cols, rows,
+      damagedCols: 0, collapsing: null, collapsed: false };
     this.buildings.push(b);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -279,9 +286,18 @@ export class World {
   damageSegment(seg, dmg, credit = false) {
     if (seg.destroyed || dmg <= 0) return 0;
     const applied = Math.min(seg.hp, dmg);
+    const wasWeak = seg.hp < seg.maxHp * 0.5;
     seg.hp -= applied;
     this.destroyedHp += applied;
     seg.cracks = Math.min(3, Math.floor((1 - seg.hp / seg.maxHp) * 4));
+    const bld = this.buildings[seg.buildingId];
+    if (bld && !wasWeak && seg.hp < seg.maxHp * 0.5) {
+      bld.damagedCols++;
+      // Falla estructural: demasiadas columnas debilitadas → colapso en cascada
+      if (!bld.collapsing && !bld.collapsed && bld.damagedCols >= Math.max(3, Math.ceil(bld.segs.length * 0.22))) {
+        this.startCollapse(bld, credit);
+      }
+    }
     const prev = seg.floorsAlive;
     const now = seg.hp <= 0 ? 0 : Math.ceil(seg.floors * (seg.hp / seg.maxHp));
     const topZ = Math.max(1, prev) * FLOOR_H;
@@ -289,6 +305,7 @@ export class World {
     if (seg.kind === 'facade' && Math.random() < 0.5) glassShards(this.particles, seg.cx, seg.cy, Math.random() * topZ, 3);
     if (now < prev) {
       seg.floorsAlive = now;
+      this.shake += Math.min(4, 0.8 * (prev - now));
       for (let k = prev - 1; k >= now; k--) this._floorCollapse(seg, k, credit);
       if (seg.kind === 'facade') sfx.shatter();
       sfx.smash();
@@ -309,21 +326,28 @@ export class World {
     dustCloud(this.particles, seg.cx, seg.cy, 4, { z, spread: 14, size: 16, rise: 10 });
     if (seg.kind === 'facade') glassShards(this.particles, seg.cx, seg.cy, z, 7);
     burst(this.particles, seg.cx, seg.cy, 5, seg.color, { z });
-    // Trozos físicos reutilizables
-    const nChunks = seg.kind === 'facade' ? 2 : 1;
+    // Fractura irregular: trozos de concreto/ladrillo de tamaños desiguales que salen girando
+    const bld = this.buildings[seg.buildingId];
+    const ocx = bld ? bld.x + bld.w / 2 : seg.cx, ocy = bld ? bld.y + bld.h / 2 : seg.cy;
+    let ox = seg.cx - ocx, oy = seg.cy - ocy;
+    const ol = Math.hypot(ox, oy) || 1; ox /= ol; oy /= ol;
+    const nChunks = Math.max(1, Math.round((seg.kind === 'facade' ? 3 + Math.random() * 2.5 : 1.5 + Math.random()) * this.fxScale));
     for (let i = 0; i < nChunks; i++) {
-      const sz = 8 + Math.random() * 9;
+      const sz = 5 + Math.random() * Math.random() * 16;
+      const out = 40 + Math.random() * 120;
       this.debris.push(new Body({
         x: seg.x + Math.random() * (seg.w - sz), y: seg.y + Math.random() * (seg.h - sz),
-        w: sz, h: sz * (0.7 + Math.random() * 0.5), th: sz * (0.5 + Math.random() * 0.5),
-        z, vz: 10 + Math.random() * 60,
-        vx: (Math.random() - 0.5) * 110, vy: (Math.random() - 0.5) * 110,
+        w: sz * (0.7 + Math.random() * 0.6), h: sz * (0.6 + Math.random() * 0.7), th: sz * (0.35 + Math.random() * 0.6),
+        z, vz: 10 + Math.random() * 70,
+        vx: ox * out + (Math.random() - 0.5) * 90, vy: oy * out + (Math.random() - 0.5) * 90,
         mass: sz / 7, kind: 'debris',
-        color: Math.random() > 0.4 ? seg.color : '#8d8a84',
-        spin: (Math.random() - 0.5) * 6, friction: 0.9, bounce: 0.3,
+        color: Math.random() > 0.35 ? seg.color : (Math.random() > 0.5 ? '#8d8a84' : '#6f6a64'),
+        spin: (Math.random() - 0.5) * 8, friction: 0.9, bounce: 0.3,
         playerTouch: credit ? 3 : 0,
+        data: { chunk: true },
       }));
     }
+    if (seg.kind === 'facade') sparks(this.particles, seg.cx + ox * seg.w * 0.5, seg.cy + oy * seg.h * 0.5, z, 2, 90, '#ffe2a8');
     // Montón de escombro estático en la base
     seg.rubbleLevel++;
     const pile = Math.min(28, seg.rubbleLevel * 3.2);
@@ -337,6 +361,76 @@ export class World {
     this._capDebris();
   }
 
+  /** Inicia el colapso en cascada de un edificio completo (se hunde piso por piso) */
+  startCollapse(b, credit = false) {
+    if (b.collapsing || b.collapsed) return;
+    b.collapsing = { t: 0.35, credit, step: 0 };
+    this.shake += 6;
+    sfx.smash();
+    // Crujido inicial: polvo que brota de la base
+    for (let k = 0; k < 6; k++) {
+      const s = b.segs[Math.floor(Math.random() * b.segs.length)];
+      dustCloud(this.particles, s.cx, s.cy, 2, { z: 6, size: 20, speed: 60, life: 2.2 });
+    }
+  }
+
+  _collapseStep(b) {
+    const c = b.collapsing;
+    let level = 0;
+    for (const s of b.segs) if (s.floorsAlive > level) level = s.floorsAlive;
+    if (level <= 0) {
+      // Final: gran nube de polvo que rueda hacia afuera + cráter de escombro
+      b.collapsing = null; b.collapsed = true;
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2, R = Math.max(b.w, b.h) * 0.6;
+      const n = Math.round(14 * this.fxScale);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        dustCloud(this.particles, cx + Math.cos(a) * R, cy + Math.sin(a) * R, 2, { z: 6, size: 30, speed: 110, life: 3.2, rise: 14, spread: 20 });
+      }
+      this.addFx({ type: 'ring', x: cx, y: cy, r: R * 0.5, maxR: R * 2.4, life: 0.9, color: '#d9c6a6', alpha: 0.3 });
+      this.addRoadCrack(cx, cy, Math.min(2.4, 1 + b.floors * 0.12), 'crater');
+      this.shake += 10;
+      this.haze = Math.min(1, this.haze + 0.45);
+      sfx.explode?.();
+      return;
+    }
+    const credit = c.credit;
+    const top = [];
+    for (const s of b.segs) if (s.floorsAlive === level) top.push(s);
+    const z = (level - 0.5) * FLOOR_H;
+    for (const s of top) {
+      const newHp = s.maxHp * (level - 1) / s.floors;
+      const delta = Math.max(0, s.hp - newHp);
+      s.hp = newHp; this.destroyedHp += delta;
+      if (credit) this.pendingScore += delta;
+      s.floorsAlive = level - 1;
+      s.cracks = 3;
+      if (s.floorsAlive <= 0) { s.destroyed = true; s.hp = 0; }
+      s.rubbleLevel++;
+      if (Math.random() < 0.6) this.addRubble(s.cx + (Math.random() - 0.5) * s.w, s.cy + (Math.random() - 0.5) * s.h,
+        Math.min(26, s.rubbleLevel * 2.6) * Math.random(), 5 + Math.random() * 8, Math.random() > 0.5 ? s.color : '#7c7871');
+      s.dirty = true; this.dirtySegs.push(s);
+    }
+    // Efectos pesados solo en una muestra (rendimiento)
+    const heavy = Math.max(2, Math.round(5 * this.fxScale));
+    for (let i = 0; i < heavy && top.length; i++) {
+      const s = top[Math.floor(Math.random() * top.length)];
+      this._floorCollapse(s, level - 1, credit);
+    }
+    // Polvo que escapa por el perímetro a la altura del piso que cae
+    const per = Math.round(4 * this.fxScale);
+    for (let i = 0; i < per; i++) {
+      const edge = Math.floor(Math.random() * 4), t = Math.random();
+      const px = edge < 2 ? b.x + t * b.w : (edge === 2 ? b.x : b.x + b.w);
+      const py = edge < 2 ? (edge === 0 ? b.y : b.y + b.h) : b.y + t * b.h;
+      dustCloud(this.particles, px, py, 1, { z, size: 26, speed: 70, life: 2.6, rise: 6, spread: 6 });
+    }
+    this.segVersion++;
+    this.shake += 2.2;
+    if (c.step++ % 2 === 0) sfx.smash();
+    c.t = Math.max(0.09, 0.2 - c.step * 0.012); // acelera al caer
+  }
+
   addRubble(x, y, z, s, color) {
     const i = this.rubbleCount % MAX_RUBBLE;
     this.rubble[i] = { x, y, z, s, rx: Math.random() * 6, ry: Math.random() * 6, color };
@@ -344,9 +438,10 @@ export class World {
   }
 
   _capDebris() {
-    if (this.debris.length <= MAX_DEBRIS) return;
+    const cap = this.debrisCap || MAX_DEBRIS;
+    if (this.debris.length <= cap) return;
     // Convierte los más viejos en reposo a escombro estático decorativo
-    let excess = this.debris.length - MAX_DEBRIS;
+    let excess = this.debris.length - cap;
     for (const d of this.debris) {
       if (excess <= 0) break;
       if (!d.alive || d.grabbed || d.frozen || d.data.carPart) continue;
@@ -409,6 +504,9 @@ export class World {
     for (let i = 0; i < 6 * power; i++) smokePuff(this.particles, x, y, z + 10, { size: 12 * power, life: 2.4, color: '#2c2a28' });
     this.addFx({ type: 'flash', x, y, z: z + 12, intensity: 1.0 + power, life: 0.35, color: '#ffaa55' });
     this.addFx({ type: 'ring', x, y, r: 10, maxR: 60 + 70 * power, life: 0.45, color: '#ffb070' });
+    this.addFx({ type: 'shockwave', x, y, z: z + 4, r: 6, maxR: 55 + 60 * power, life: 0.55, color: '#ffd2a0' });
+    this.shake += 5 + 7 * power;
+    this.haze = Math.min(1, this.haze + 0.12 * power);
     this.addRoadCrack(x, y, 0.8 + power * 0.6, 'crater');
     this.fires.push({ x, y, z: 4, life: 2 + power * 2 });
     sfx.explode?.();
@@ -579,9 +677,16 @@ export class World {
     }
     if (this.fires.length) this.fires = this.fires.filter(f => f.life > 0);
 
+    for (const b of this.buildings) {
+      if (!b.collapsing) continue;
+      b.collapsing.t -= dt;
+      if (b.collapsing.t <= 0) this._collapseStep(b);
+    }
+    if (this.haze > 0) this.haze = Math.max(0, this.haze - dt * 0.04);
+
     for (const fx of this.fx) {
       fx.life -= dt;
-      if (fx.type === 'ring') fx.r += (fx.maxR - fx.r) * Math.min(1, 9 * dt);
+      if (fx.type === 'ring' || fx.type === 'shockwave') fx.r += (fx.maxR - fx.r) * Math.min(1, (fx.type === 'shockwave' ? 7 : 9) * dt);
     }
     if (this.fx.length) this.fx = this.fx.filter(f => f.life > 0);
   }
