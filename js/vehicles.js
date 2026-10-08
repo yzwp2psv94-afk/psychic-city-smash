@@ -772,7 +772,7 @@ export class Vehicle {
   }
 
   _wrap(world, vehicles) {
-    const W = world.w, H = world.h, m = 30;
+    const W = world.w, H = world.h, m = 30, x0 = world.minX ?? 0, y0 = world.minY ?? 0;
     let nx = null, ny = null;
     if (this.cx > W + m) nx = -m + 5;
     else if (this.cx < -m) nx = W + m - 5;
@@ -891,11 +891,11 @@ export function spawnCityTraffic(world, count = 14) {
       let x, y, coord, angle;
       if (road.horiz) {
         coord = road.y + (dir > 0 ? ROAD_W * 0.73 : ROAD_W * 0.27);
-        x = 40 + Math.random() * (world.w - 80); y = coord;
+        x = road.x + 40 + Math.random() * Math.max(40, road.w - 80); y = coord;
         angle = dir > 0 ? 0 : Math.PI;
       } else {
         coord = road.x + (dir > 0 ? ROAD_W * 0.27 : ROAD_W * 0.73);
-        y = 40 + Math.random() * (world.h - 80); x = coord;
+        y = road.y + 40 + Math.random() * Math.max(40, road.h - 80); x = coord;
         angle = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       }
       // lejos de cruces, de otros autos y del jugador

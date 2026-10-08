@@ -3,7 +3,9 @@
  * Lógica 2.5D (px) + render Three.js · destrucción persistente · TK con carga · autos Wreckfest-like
  */
 
-import { World, impactDamage, CRATER_CAP } from './world.js';
+import { World, impactDamage, CRATER_CAP, STREAM_R } from './world.js';
+import { RagdollSystem } from './ragdoll.js';
+import { cutBuildingSegment, cutTree, cutVehicle, addCutPlane, updateCutPlanes, tickCutCool, laserProfile, carveBuilding, carveTrench, laserImpactFx } from './cuts.js';
 import { loadAssets } from './assets.js';
 import { stepBody, aabbOverlap, dustCloud, sparks } from './physics.js';
 import { PowersSystem, POWERS } from './powers.js';
@@ -127,8 +129,8 @@ class Player {
       if (Math.abs(ny - this.y) > 0.01) this.vy *= 0.2;
       this.x = nx; this.y = ny;
     }
-    this.x = Math.max(10, Math.min(world.w - 10, this.x));
-    this.y = Math.max(10, Math.min(world.h - 10, this.y));
+    this.x = Math.max((world.minX ?? 0) + 10, Math.min(world.w - 10, this.x));
+    this.y = Math.max((world.minY ?? 0) + 10, Math.min(world.h - 10, this.y));
     const sr = Math.hypot(this.vx, this.vy) / this.speed;
     if (sr > 0.04) this.walkPhase += dt * 11 * Math.min(1.3, sr);
     // Altura: suelo = techo/columna bajo los pies (+ cráter)
@@ -231,6 +233,7 @@ class Game {
     this._bindInput();
     this._bindButtons();
     this.mobile.init();
+    this._updateLaserPowLabel();
     this._loadAssets();
     this.ui.updateCharge({ charging: false, charge: 0, force: this.force });
 
@@ -298,7 +301,12 @@ class Game {
     const Q = this.r3d?.setQuality(this.quality) || QUALITY[this.quality];
     if (!Q) return;
     setParticleBudget(Q.particles);
-    if (this.world) { this.world.fxScale = Q.fxScale; this.world.debrisCap = Q.debrisCap; this.world.craterCap = CRATER_CAP[this.quality] || CRATER_CAP.medium; }
+    if (this.world) {
+      this.world.fxScale = Q.fxScale; this.world.debrisCap = Q.debrisCap;
+      this.world.craterCap = CRATER_CAP[this.quality] || CRATER_CAP.medium;
+      this.world.setStreamRadius?.(this.quality);
+    }
+    this.ragdolls?.setQuality?.(this.quality);
     document.body.dataset.quality = this.quality;
   }
 
@@ -492,7 +500,17 @@ class Game {
   setForce(v) {
     this.force = Math.max(0.05, Math.min(1, Math.round(v * 100) / 100));
     if (this.powers) this.powers.setForce(this.force);
+    this._updateLaserPowLabel();
     return this.force;
+  }
+
+  /** Badge junto al botón Láser: potencia = Fuerza actual */
+  _updateLaserPowLabel() {
+    const el = document.getElementById('laserPow');
+    if (!el) return;
+    const pct = Math.round(this.force * 100);
+    el.textContent = pct + '%';
+    el.dataset.tier = this.force < 0.28 ? 'low' : this.force < 0.65 ? 'mid' : 'high';
   }
 
   /** Zoom de cámara: distancia limitada a [ZOOM_MIN, ZOOM_MAX] */
@@ -562,58 +580,100 @@ class Game {
     this.setTip(`¡Aterrizaje! ${Math.round(pw * 100)}%`);
   }
 
-  /** Láser de los ojos: daño continuo en la mira */
+  /** Láser de los ojos: haz grueso, tallado progresivo; potencia = Fuerza */
   _updateLaser(dt, hold) {
     const L = this.laser, p = this.player, w = this.world;
-    const cost = 7 * dt;
+    const prof = laserProfile(this.force);
+    L.power = prof;   // el renderer lee grosor / brillo
+    const cost = prof.cost * dt;
     L.on = !!hold && p.energy > cost;
     if (!L.on) { L.hit = null; return; }
     p.energy -= cost;
+
+    // Alcance según fuerza: acerca la mira si está demasiado lejos
     const a = this.aim;
+    const dx = a.x - p.x, dy = a.y - p.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > prof.range) {
+      const k = prof.range / dist;
+      a.x = p.x + dx * k; a.y = p.y + dy * k;
+    }
     L.hit = { x: a.x, y: a.y, z: a.z };
-    const dps = 45;
-    // Edificios: corta columnas (puede romper pisos y provocar colapso)
-    let hitSeg = false;
+
+    let hitHard = false;
     L.segT = (L.segT || 0) + dt;
-    if (L.segT >= 0.1) {
+    if (L.segT >= 0.05) {
       const step = L.segT; L.segT = 0;
-      w.segmentsInRadius(a.x, a.y, 11, s => {
-        if (s.height >= a.z - 4) { this.score += w.damageSegment(s, dps * step, true); hitSeg = true; }
+      const rad = 8 + prof.thick * 6;
+      w.segmentsInRadius(a.x, a.y, rad, s => {
+        if (s.height < a.z - 8 || s.destroyed) return;
+        hitHard = true;
+        this.score += carveBuilding(w, s, a.z, step, prof, true);
       });
     }
-    // Autos: se calientan → arden → explotan
+
+    // Autos
     for (const v of this.vehicles) {
       if (!v.alive || v === this.drivenCar) continue;
-      if (Math.hypot(v.cx - a.x, v.cy - a.y) > Math.max(v.w, v.h) * 0.6 + 6) continue;
-      const prev = L.heat.get(v) || 0, heat = prev + dt;
+      if (Math.hypot(v.cx - a.x, v.cy - a.y) > Math.max(v.w, v.h) * 0.55 + 5 + prof.thick * 3) continue;
+      if (a.z > 30 && v.liftZ < 2) continue;
+      const prev = L.heat.get(v) || 0, heat = prev + dt * prof.cutSpeed;
       L.heat.set(v, heat);
-      if (Math.floor(heat / 0.35) !== Math.floor(prev / 0.35)) this.score += v.applyDamage(5, w, a.x, a.y, true);
-      if (heat > 0.7) v.onFire = Math.max(v.onFire || 0, 8);
-      if (heat > 2.2 && !v._laserBoom) {
-        v._laserBoom = true;
-        v.parts.engine.hp = 0;               // motor fundido → chatarra
-        this.score += v.applyDamage(120, w, a.x, a.y, true);
-        v.onFire = Math.max(v.onFire || 0, 14);
-        w.explosion(v.cx, v.cy, 6, 0.9, true);
+      hitHard = true;
+      if (Math.floor(heat / 0.35) !== Math.floor(prev / 0.35)) this.score += v.applyDamage(3 + prof.f * 6, w, a.x, a.y, true);
+      if (prof.canSlice && heat > prof.sliceCar && !v._laserCut) {
+        this.score += cutVehicle(v, w, true, prof);
+        L.heat.set(v, 0);
+      } else if (heat > prof.sliceCar * 0.45) v.onFire = Math.max(v.onFire || 0, 4 + prof.f * 6);
+    }
+
+    // Árboles / props
+    for (const pr of w.props) {
+      if (pr.destroyed) continue;
+      if (Math.hypot(pr.cx - a.x, pr.cy - a.y) > 10 + prof.thick * 3) continue;
+      if (pr.kind === 'tree') {
+        const prev = L.heat.get(pr) || 0, heat = prev + dt * prof.cutSpeed;
+        L.heat.set(pr, heat);
+        hitHard = true;
+        if (prof.canSlice && heat > prof.sliceTree) { this.score += cutTree(w, pr, true, prof); L.heat.delete(pr); }
+        else this.score += w.damageProp(pr, (10 + prof.f * 25) * dt, p.x, p.y);
+      } else {
+        this.score += w.damageProp(pr, (18 + prof.f * 30) * dt, p.x, p.y);
       }
     }
-    for (const pr of w.props) if (!pr.destroyed && Math.hypot(pr.cx - a.x, pr.cy - a.y) < 12) this.score += w.damageProp(pr, 30 * dt, p.x, p.y);
+
+    // NPCs / ragdolls
+    if (prof.canSlice) this.score += this.ragdolls.cutAt(a.x, a.y, a.z, this.npcs, true);
     for (const n of this.npcs) {
-      if (n.alive && Math.hypot(n.cx - a.x, n.cy - a.y) < 10 && Math.random() < dt * 3) {
-        const ang = Math.atan2(n.cy - p.y, n.cx - p.x);
-        this.score += n.hitByBody({ speed: 120, mass: 1, vx: Math.cos(ang) * 120, vy: Math.sin(ang) * 120 }, true);
+      if (!n.alive) continue;
+      if (Math.hypot(n.cx - a.x, n.cy - a.y) < 9 + prof.thick * 2 && Math.abs((n.liftZ || 0) + 10 - a.z) < 24) {
+        const prev = L.heat.get(n) || 0, heat = prev + dt * prof.cutSpeed;
+        L.heat.set(n, heat);
+        hitHard = true;
+        if (heat > prof.sliceNpc) {
+          this.score += this.ragdolls.spawnFromNpc(n, {
+            vx: (n.cx - p.x) * 0.5, vy: (n.cy - p.y) * 0.5, vz: 90 + prof.f * 80,
+            cut: prof.canSlice && this.force >= 0.45, credit: true,
+          });
+          L.heat.delete(n);
+          sparks(w.particles, n.cx, n.cy, 14, 3 + Math.round(prof.thick), 100, '#ffe2a8');
+        }
       }
     }
-    if (this.rival?.alive && Math.hypot(this.rival.cx - a.x, this.rival.cy - a.y) < 14) this.rival.takeDamage(20 * dt);
-    // Chispas, humo, marcas de quemado
-    sparks(w.particles, a.x, a.y, a.z + 1, hitSeg ? 3 : 2, 160, Math.random() > 0.5 ? '#ffd36b' : '#ff7a2a');
-    if (Math.random() < 0.25) addParticle(w.particles, a.x, a.y, { z: a.z + 2, vx: 0, vy: 0, vz: 30, size: 6, grow: 10, life: 1.2, color: '#2a2622', type: 'smoke', alpha: 0.5 });
-    L.decalT -= dt;
-    if (a.z < 2 && L.decalT <= 0 && Math.hypot(a.x - L.lx, a.y - L.ly) > 5) {
-      w.addRoadCrack(a.x, a.y, 0.55 + Math.random() * 0.3, 'scorch');
-      L.decalT = 0.08; L.lx = a.x; L.ly = a.y;
+    if (this.rival?.alive && Math.hypot(this.rival.cx - a.x, this.rival.cy - a.y) < 12 + prof.thick * 2) {
+      this.rival.takeDamage((12 + prof.f * 28) * dt);
     }
-    this.addShake(1.4);
+
+    laserImpactFx(w, a.x, a.y, a.z, prof, hitHard);
+    // Trinchera / hollín al barrer el suelo
+    L.decalT = (L.decalT || 0) - dt;
+    if (a.z < 3) {
+      carveTrench(w, a.x, a.y, dt, prof);
+      if (L.decalT <= 0 && Math.hypot(a.x - (L.lx || 0), a.y - (L.ly || 0)) > 3) {
+        L.decalT = 0.05; L.lx = a.x; L.ly = a.y;
+      }
+    }
+    this.addShake(0.8 + prof.thick * 0.9);
   }
 
   cycleForcePreset() {
@@ -645,7 +705,10 @@ class Game {
     const world = new World();
     this.world = world;
     this._applyQuality();
+    world.setStreamRadius?.(this.quality);
     world.onExplosion = (x, y, r, p, credit) => this._explosionHits(x, y, r, p, credit);
+    this.ragdolls = new RagdollSystem();
+    this.ragdolls.setQuality(this.quality);
     this.player = new Player(world.spawn.x, world.spawn.y);
     this.player.maxAlt = 1.5 * Math.max(...world.buildings.map(b => b.floors)) * FLOOR_H;
     document.body.classList.remove('flying');
@@ -1228,6 +1291,15 @@ class Game {
     this._updateAim(dt, mob);
     this._updateLaser(dt, mob.laser || this.keys['l'] || this._mouseLaser);
     if (this._lzClass !== this.laser.on) { this._lzClass = this.laser.on; document.body.classList.toggle('lasering', this.laser.on); }
+    // v6: streaming de manzanas + planos de corte + ragdolls
+    if (world.updateStreaming?.(player.x, player.y)) {
+      this._onStreamRebuild?.() || this.r3d.buildWorld(world);
+      // Reponer tráfico/NPCs lejos si hace falta
+      this._restockFar?.(player);
+    }
+    updateCutPlanes(world, dt);
+    tickCutCool(world, dt);
+    this.ragdolls?.update(dt, world);
     this._syncLoops(dt);
 
     // Poderes
@@ -1270,6 +1342,13 @@ class Game {
       }
     }
 
+    // Ragdolls → integrar como escombro (misma física)
+    if (this.ragdolls) {
+      for (const d of this.ragdolls.parts) {
+        if (!d.alive || d.grabbed) continue;
+        stepBody(d, dt, world.bounds);
+      }
+    }
     // Escombros
     for (const d of world.debris) {
       if (!d.alive || d.grabbed || d.lifted || d.frozen) continue;
@@ -1350,10 +1429,16 @@ class Game {
     const tgt = this.drivenCar ? target : player;
     const npcs = this.npcs;
     for (let ni = 0; ni < npcs.length; ni++) { const n = npcs[ni]; n.update(dt, world, player, n.hostile ? tgt : null); }
-    // compactar en el sitio (sin crear un array nuevo cada frame)
+    // compactar; v6: KO → ragdoll flop (sin gore)
     let nw = 0;
     for (let ni = 0; ni < npcs.length; ni++) {
       const n = npcs[ni];
+      if (n._wantRagdoll && this.ragdolls) {
+        const w = n._wantRagdoll; n._wantRagdoll = null;
+        this.ragdolls.spawnFromNpc(n, { vx: w.vx, vy: w.vy, vz: Math.max(60, w.vz || 80), cut: false, credit: !!w.credit });
+        dustCloud(world.particles, n.cx, n.cy, 2, { size: 6 });
+        continue;
+      }
       if (n.alive) npcs[nw++] = n;
       else dustCloud(world.particles, n.cx, n.cy, 3, { size: 8 });
     }

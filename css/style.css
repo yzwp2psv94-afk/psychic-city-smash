@@ -935,3 +935,18 @@ body.iphone-mode .touch-btn.pedal.pressed { transform: scale(0.96); }
   .load-box { margin-top: 3px; font-size: 0.6rem; }
   .load-bar { height: 4px; margin-bottom: 2px; }
 }
+
+
+/* v6: potencia del láser (= Fuerza) junto al botón */
+.laser-pow {
+  position: absolute; right: -2px; bottom: -2px;
+  font-size: 0.55rem; font-weight: 800; line-height: 1;
+  padding: 2px 4px; border-radius: 6px;
+  background: rgba(0,0,0,0.65); color: #ffd6a8;
+  pointer-events: none; letter-spacing: -0.02em;
+}
+.laser-pow[data-tier="low"] { color: #ffb0a0; }
+.laser-pow[data-tier="mid"] { color: #ffd166; }
+.laser-pow[data-tier="high"] { color: #fff1c4; text-shadow: 0 0 6px #ff5a1a; }
+body.iphone-mode .touch-btn.face.laser { overflow: visible; }
+body.lasering .touch-btn.face.laser .laser-pow { background: rgba(255,90,26,0.85); color: #fff; }

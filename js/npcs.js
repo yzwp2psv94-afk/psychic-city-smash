@@ -94,8 +94,9 @@ export class NPC {
   }
 
   _clamp(world) {
-    if (this.x < 8) { this.x = 8; this.wanderAngle = Math.PI - this.wanderAngle; }
-    if (this.y < 8) { this.y = 8; this.wanderAngle = -this.wanderAngle; }
+    const x0 = world.minX ?? 0, y0 = world.minY ?? 0;
+    if (this.x < x0 + 8) { this.x = x0 + 8; this.wanderAngle = Math.PI - this.wanderAngle; }
+    if (this.y < y0 + 8) { this.y = y0 + 8; this.wanderAngle = -this.wanderAngle; }
     if (this.x > world.w - 16) { this.x = world.w - 16; this.wanderAngle = Math.PI - this.wanderAngle; }
     if (this.y > world.h - 16) { this.y = world.h - 16; this.wanderAngle = -this.wanderAngle; }
   }
@@ -115,7 +116,8 @@ export class NPC {
     this.wanderAngle = Math.atan2(this.vy, this.vx);
     sfx.hit();
     if (this.hp <= 0) {
-      // KO arcade: puf de polvo, sin gore
+      // v6: KO → ragdoll (el juego lo convierte); sin gore
+      this._wantRagdoll = { vx: this.vx, vy: this.vy, vz: this.vz, credit };
       return credit ? 15 : 0;
     }
     return credit ? 5 : 0;
@@ -250,12 +252,14 @@ function findSidewalkSpot(world) {
     const sw = world.sidewalks[Math.floor(Math.random() * world.sidewalks.length)];
     const x = sw.x + Math.random() * Math.max(10, sw.w - 10);
     const y = sw.y + Math.random() * Math.max(2, sw.h - 8);
-    if (x > 10 && y > 10 && x < world.w - 20 && y < world.h - 20) return { x, y };
+    const x0 = world.minX ?? 0, y0 = world.minY ?? 0;
+    if (x > x0 + 10 && y > y0 + 10 && x < world.w - 20 && y < world.h - 20) return { x, y };
   }
   return { x: world.spawn.x + 40, y: world.spawn.y };
 }
 
 export function spawnCivilians(world, n = 30) {
+  const x0 = world.minX ?? 0, y0 = world.minY ?? 0;
   const list = [];
   for (let i = 0; i < n; i++) {
     const { x, y } = findSidewalkSpot(world);

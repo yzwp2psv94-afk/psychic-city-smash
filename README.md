@@ -1,4 +1,4 @@
-# Psychic City Smash · v4.3 (3D)
+# Psychic City Smash · v6 (3D)
 
 Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Desde la v4.3 usa **assets CC0** (autos .glb, texturas, decals y cielo HDRI, en `assets/`) que se cargan en segundo plano; si alguno falla, el juego sigue con la versión procedural (canvas).
 
@@ -125,6 +125,13 @@ En el menú principal:
   - **Autos (incluso estacionados o chatarra) y el jugador ruedan hacia adentro** y se inclinan con la pendiente.
 - **Optimizado para móvil**: todo instanciado y reutilizado (sin crear objetos por cuadro), decals limitados por calidad (180 / 120 / 70) y mallas de cráter más simples en calidad baja.
 
+## Láser, ragdolls y ciudad infinita (v6)
+
+- **Láser que corta**: haz grueso (núcleo + halo + aura). Al mantenerlo **talla** edificios, árboles, autos y maniquíes; a **Fuerza alta** los parte en dos con un plano brillante. A Fuerza baja solo chamusca y hace muescas. Barrer el suelo deja una **trinchera/hollín** que se profundiza.
+- **Potencia = Fuerza**: el slider / ± / rueda controlan grosor, velocidad de corte, alcance y escombro. El % se ve junto al botón *Láser*.
+- **Ragdolls**: al tumbar o cortar un NPC, el maniquí se afloja en piezas (tope por calidad, sin gore).
+- **Ciudad en streaming**: manzanas nuevas alrededor al caminar/volar; las lejanas se descargan (caché LRU de destrucción cercana).
+
 ## Assets CC0 (v4.3)
 
 - **Carga asíncrona** con barra de progreso en el menú («⏳ CARGANDO… N %»); *Jugar* se habilita al terminar (o a los 12 s como máximo). Si un archivo falla, ese elemento queda **procedural** y el juego sigue. `?assets=0` desactiva todos los assets (aspecto anterior).
@@ -218,6 +225,8 @@ psychic-city-smash/
   js/renderer3d.js  — escena Three.js (ciudad, autos, partículas, mira, cámaras)
   js/carmodel.js    — modelos de autos por tipo (loft), LOD, ruedas instanciadas, deformación
   js/glbcar.js      — autos .glb (CC0): escala por tipo, pintura, ruedas, abolladuras, LOD
+  js/cuts.js        — láser: tallado progresivo, cortes, trincheras
+  js/ragdoll.js     — maniquíes flojos (pool + tope móvil)
   js/assets.js      — carga asíncrona de assets con progreso y respaldo
   js/assetfx.js     — parches de shaders (fachadas, suelo, escombro, decals, cielo)
   js/textures.js    — texturas procedurales (calles, fachadas, grietas…)

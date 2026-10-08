@@ -15,9 +15,11 @@ export const CELL = 26;
 export const BLOCK = 230;
 export const SIDEWALK_W = 14;
 export const ROAD_W = 72;
-export const N_ROADS = 4;
+export const N_ROADS = 4;           // semilla inicial (compat); el mapa streamable es infinito
 export const PITCH = BLOCK + ROAD_W + SIDEWALK_W * 2; // 330
-export const WORLD_SIZE = (N_ROADS + 1) * BLOCK + N_ROADS * (ROAD_W + SIDEWALK_W * 2); // 1550
+export const WORLD_SIZE = (N_ROADS + 1) * BLOCK + N_ROADS * (ROAD_W + SIDEWALK_W * 2); // 1550 (solo referencia)
+/** Radio de streaming en manzanas (alrededor del jugador) */
+export const STREAM_R = { high: 3, medium: 2, low: 2 };
 
 export const MAX_DEBRIS = 380;
 export const MAX_RUBBLE = 2400;
@@ -87,7 +89,23 @@ export class World {
     this.w = w;
     this.h = h;
     this.bounds = { x: 0, y: 0, w, h };
+    this.chunks = new Map();       // "cx,cy" → datos de manzana
+    this.streamR = STREAM_R.medium;
+    this.streamVersion = 0;
+    this._scx = null; this._scy = null;
+    this._nextBid = 0;
+    this.cutPlanes = [];
     this.generate();
+  }
+
+  setStreamRadius(q) {
+    this.streamR = STREAM_R[q] || STREAM_R.medium;
+  }
+
+  /** Semilla estable por manzana (variedad sin Math.random global) */
+  _chunkRand(cx, cy) {
+    let s = (cx * 73856093) ^ (cy * 19349663) ^ 0x2f3a9c1;
+    return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
   }
 
   generate() {
@@ -95,18 +113,17 @@ export class World {
     this.props = [];
     this.debris = [];
     this.particles = [];
-    this.cracks = [];       // ring buffer {x,y,size,angle,type}
+    this.cracks = [];
     this.crackCount = 0;
-    this.rubble = [];       // ring buffer {x,y,z,s,rx,ry,color}
+    this.rubble = [];
     this.rubbleCount = 0;
-    // v4.2: losas estáticas, cráteres deformables y fachadas que se desprenden
-    this.slabs = [];        // ring buffer {x,y,z,w,d,t,rx,ry,rz,color,kind}
+    this.slabs = [];
     this.slabCount = 0;
-    this.craters = [];      // {id,x,y,r,depth,scorch,ver}
+    this.craters = [];
     this.craterSeq = 0;
     this.craterVersion = 0;
     this.craterCap = this.craterCap || CRATER_CAP.medium;
-    this.peels = [];        // paneles de fachada que se inclinan y caen
+    this.peels = [];
     this.fx = [];
     this.fires = [];
     this.buildings = [];
@@ -120,146 +137,248 @@ export class World {
     this.segVersion = 0;
     this.propVersion = 0;
     this.dirtySegs = [];
-    // Cine de destrucción
-    this.shake = 0;          // sacudida acumulada (la consume Game)
-    this.haze = 0;           // polvo en el aire tras colapsos (niebla)
-    this.pendingScore = 0;   // puntos de colapsos en cascada (crédito al jugador)
+    this.shake = 0;
+    this.haze = 0;
+    this.pendingScore = 0;
     this.debrisCap = this.debrisCap || MAX_DEBRIS;
     this.fxScale = this.fxScale || 1;
+    this.cutPlanes = [];
+    this.chunks.clear();
+    this._nextBid = 0;
+    // Origen: plaza en (2,2) para un arranque familiar; el mundo se extiende al caminar/volar
+    this.spawnChunk = { cx: 2, cy: 2 };
+    this.spawn = { x: 2 * PITCH + BLOCK / 2, y: 2 * PITCH + BLOCK / 2 };
+    this.updateStreaming(this.spawn.x, this.spawn.y, true);
+  }
 
-    const W = this.w, H = this.h;
+  /**
+   * Carga/descarga manzanas alrededor del jugador. Devuelve true si cambió el conjunto
+   * (el juego debe reconstruir la malla 3D).
+   */
+  updateStreaming(px, py, force = false) {
+    const R = this.streamR;
+    const pcx = Math.floor(px / PITCH), pcy = Math.floor(py / PITCH);
+    if (!force && pcx === this._scx && pcy === this._scy) return false;
+    this._scx = pcx; this._scy = pcy;
+    const need = new Set();
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) need.add((pcx + dx) + ',' + (pcy + dy));
+    // LRU: conservar manzanas descargadas un rato (destrucción cercana)
+    if (!this._chunkCache) this._chunkCache = new Map();
+    for (const key of [...this.chunks.keys()]) {
+      if (!need.has(key)) {
+        this._chunkCache.set(key, this.chunks.get(key));
+        this.chunks.delete(key);
+        if (this._chunkCache.size > 48) {
+          const first = this._chunkCache.keys().next().value;
+          this._chunkCache.delete(first);
+        }
+      }
+    }
+    for (const key of need) {
+      if (this.chunks.has(key)) continue;
+      if (this._chunkCache.has(key)) {
+        this.chunks.set(key, this._chunkCache.get(key));
+        this._chunkCache.delete(key);
+      } else {
+        const [cx, cy] = key.split(',').map(Number);
+        this.chunks.set(key, this._makeChunk(cx, cy));
+      }
+    }
+    this._rebuildFlat();
+    this.streamVersion++;
+    return true;
+  }
+
+  _makeChunk(cx, cy) {
+    const rnd = this._chunkRand(cx, cy);
+    const x0 = cx * PITCH, y0 = cy * PITCH;
+    const sc = this.spawnChunk;
+    let t;
+    if (cx === sc.cx && cy === sc.cy) t = 'plaza';
+    else {
+      const r = rnd();
+      t = r < 0.28 ? 'tower' : r < 0.55 ? 'split2' : r < 0.78 ? 'split4' : r < 0.88 ? 'parking' : r < 0.95 ? 'park' : 'split2';
+      // Un estacionamiento cerca del spawn
+      if (cx === sc.cx + 1 && cy === sc.cy) t = 'parking';
+    }
+    const buildings = [];
+    const props = [];
+    const parking = [];
+    const m = 12;
+    const pushB = (bx, by, bw, bh, floors) => {
+      const bid = this._nextBid++;
+      buildings.push(this._buildBuildingData(bx, by, bw, bh, bid, floors, rnd));
+    };
+    if (t === 'tower') {
+      pushB(x0 + m, y0 + m, BLOCK - 2 * m, BLOCK - 2 * m, 6 + Math.floor(rnd() * 5));
+    } else if (t === 'split2') {
+      const horiz = rnd() > 0.5;
+      const g = 10, half = (BLOCK - 2 * m - g) / 2;
+      for (let k = 0; k < 2; k++) {
+        const fl = 3 + Math.floor(rnd() * 6);
+        if (horiz) pushB(x0 + m, y0 + m + k * (half + g), BLOCK - 2 * m, half, fl);
+        else pushB(x0 + m + k * (half + g), y0 + m, half, BLOCK - 2 * m, fl);
+      }
+    } else if (t === 'split4') {
+      const g = 10, half = (BLOCK - 2 * m - g) / 2;
+      for (let k = 0; k < 4; k++) {
+        pushB(x0 + m + (k % 2) * (half + g), y0 + m + Math.floor(k / 2) * (half + g), half, half, 2 + Math.floor(rnd() * 5));
+      }
+    } else if (t === 'parking') {
+      for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) {
+        if (rnd() < 0.25) continue;
+        parking.push({
+          x: x0 + 40 + c * 50, y: y0 + 55 + r * 120,
+          angle: Math.PI / 2 + (r ? Math.PI : 0) + (rnd() - 0.5) * 0.1,
+        });
+      }
+      props.push(new Prop(x0 + 8, y0 + 8, 'tree', { w: 18, h: 18, hp: 30 }));
+      props.push(new Prop(x0 + BLOCK - 26, y0 + BLOCK - 26, 'tree', { w: 18, h: 18, hp: 30 }));
+    } else if (t === 'park') {
+      for (let i = 0; i < 9; i++) {
+        props.push(new Prop(x0 + 20 + rnd() * (BLOCK - 60), y0 + 20 + rnd() * (BLOCK - 60), 'tree', {
+          w: 20, h: 20, hp: 30, scale: 0.9 + rnd() * 0.6,
+        }));
+      }
+    } else if (t === 'plaza') {
+      for (let i = 0; i < 4; i++) {
+        const cxp = x0 + (i % 2 ? BLOCK - 34 : 16);
+        const cyp = y0 + (i < 2 ? 16 : BLOCK - 34);
+        props.push(new Prop(cxp, cyp, 'tree', { w: 18, h: 18, hp: 30, scale: 1.2 }));
+      }
+      props.push(new Prop(x0 + BLOCK / 2 - 8, y0 + 20, 'lamp', { w: 6, h: 6, hp: 18 }));
+      props.push(new Prop(x0 + BLOCK / 2 - 8, y0 + BLOCK - 26, 'lamp', { w: 6, h: 6, hp: 18 }));
+    }
+    // Faroles/hidrantes locales (bordes de manzana hacia la calle)
+    props.push(new Prop(x0 + BLOCK + SIDEWALK_W - 13, y0 + BLOCK + SIDEWALK_W - 13, 'hydrant', { w: 9, h: 9, hp: 20 }));
+    for (let s = 60; s < BLOCK; s += 165) {
+      props.push(new Prop(x0 + s, y0 + BLOCK + SIDEWALK_W - 9, 'lamp', { w: 6, h: 6, hp: 18 }));
+      props.push(new Prop(x0 + BLOCK + ROAD_W + 3, y0 + s, 'lamp', { w: 6, h: 6, hp: 18 }));
+    }
+    return { cx, cy, x0, y0, type: t, buildings, props, parking };
+  }
+
+  _buildBuildingData(bx, by, bw, bh, bid, floors, rnd = Math.random) {
+    const tint = TINTS[Math.floor(rnd() * TINTS.length)];
+    const cols = Math.max(2, Math.floor(bw / CELL));
+    const rows = Math.max(2, Math.floor(bh / CELL));
+    const actualW = cols * CELL, actualH = rows * CELL;
+    const ox = bx + (bw - actualW) / 2, oy = by + (bh - actualH) / 2;
+    const b = { id: bid, x: ox, y: oy, w: actualW, h: actualH, floors, tint, segs: [], cols, rows,
+      damagedCols: 0, collapsing: null, collapsed: false };
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const isEdge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
+      const seg = new Segment(ox + c * CELL, oy + r * CELL, CELL, CELL, {
+        kind: isEdge ? 'facade' : 'core', color: tint, buildingId: bid, floors,
+      });
+      seg.col = c; seg.row = r;
+      b.segs.push(seg);
+    }
+    return b;
+  }
+
+  _rebuildFlat() {
+    const keys = [...this.chunks.keys()].map(k => k.split(',').map(Number));
+    let minCx = Infinity, maxCx = -Infinity, minCy = Infinity, maxCy = -Infinity;
+    for (const [cx, cy] of keys) {
+      if (cx < minCx) minCx = cx; if (cx > maxCx) maxCx = cx;
+      if (cy < minCy) minCy = cy; if (cy > maxCy) maxCy = cy;
+    }
+    // Carreteras que bordean las manzanas activas (índice i → carretera entre manzanas i e i+1… en la práctica en i*PITCH + offset)
+    // road index i sits at BLOCK+SIDEWALK_W + i*PITCH; manzana cx ocupa [cx*PITCH, cx*PITCH+BLOCK]
+    // Carretera vertical al este de manzana cx: x = cx*PITCH + BLOCK + SIDEWALK_W = roadPos index cx
     const roadPos = [];
-    for (let i = 0; i < N_ROADS; i++) roadPos.push(BLOCK + SIDEWALK_W + i * PITCH);
-    this.roadPos = roadPos;
+    for (let i = minCx; i <= maxCx; i++) roadPos.push(i * PITCH + BLOCK + SIDEWALK_W);
+    // También la carretera al oeste del borde izquierdo si hay manzana minCx
+    // (la carretera índice minCx-1 limita el lado oeste)
+    if (minCx > -999) {
+      const west = (minCx - 1) * PITCH + BLOCK + SIDEWALK_W;
+      if (!roadPos.includes(west)) roadPos.unshift(west);
+    }
+    // Unificar X e Y (misma cuadrícula)
+    const rset = new Set(roadPos);
+    for (let i = minCy; i <= maxCy; i++) rset.add(i * PITCH + BLOCK + SIDEWALK_W);
+    rset.add((minCy - 1) * PITCH + BLOCK + SIDEWALK_W);
+    this.roadPos = [...rset].sort((a, b) => a - b);
 
-    for (const ry of roadPos) {
-      this.roads.push({ x: 0, y: ry, w: W, h: ROAD_W, horiz: true });
-      this.sidewalks.push({ x: 0, y: ry - SIDEWALK_W, w: W, h: SIDEWALK_W });
-      this.sidewalks.push({ x: 0, y: ry + ROAD_W, w: W, h: SIDEWALK_W });
+    const minX = minCx * PITCH - SIDEWALK_W - ROAD_W;
+    const minY = minCy * PITCH - SIDEWALK_W - ROAD_W;
+    const maxX = (maxCx + 1) * PITCH + ROAD_W + SIDEWALK_W;
+    const maxY = (maxCy + 1) * PITCH + ROAD_W + SIDEWALK_W;
+    this.w = maxX - minX;
+    this.h = maxY - minY;
+    this.originX = minX;
+    this.originY = minY;
+    // bounds en coords de mundo absolutas
+    this.bounds = { x: minX, y: minY, w: this.w, h: this.h };
+    // Compat: muchos sitios usan 0..world.w — reubicamos a coords absolutas y
+    // hacemos que world.w/h sean el máximo absoluto (para clamps suaves)
+    this.w = maxX;
+    this.h = maxY;
+    this.minX = minX; this.minY = minY;
+
+    this.roads = [];
+    this.sidewalks = [];
+    this.intersections = [];
+    for (const ry of this.roadPos) {
+      this.roads.push({ x: minX, y: ry, w: maxX - minX, h: ROAD_W, horiz: true });
+      this.sidewalks.push({ x: minX, y: ry - SIDEWALK_W, w: maxX - minX, h: SIDEWALK_W });
+      this.sidewalks.push({ x: minX, y: ry + ROAD_W, w: maxX - minX, h: SIDEWALK_W });
     }
-    for (const rx of roadPos) {
-      this.roads.push({ x: rx, y: 0, w: ROAD_W, h: H, horiz: false });
-      this.sidewalks.push({ x: rx - SIDEWALK_W, y: 0, w: SIDEWALK_W, h: H });
-      this.sidewalks.push({ x: rx + ROAD_W, y: 0, w: SIDEWALK_W, h: H });
+    for (const rx of this.roadPos) {
+      this.roads.push({ x: rx, y: minY, w: ROAD_W, h: maxY - minY, horiz: false });
+      this.sidewalks.push({ x: rx - SIDEWALK_W, y: minY, w: SIDEWALK_W, h: maxY - minY });
+      this.sidewalks.push({ x: rx + ROAD_W, y: minY, w: SIDEWALK_W, h: maxY - minY });
     }
-    for (const rx of roadPos) for (const ry of roadPos) {
+    for (const rx of this.roadPos) for (const ry of this.roadPos) {
       this.intersections.push({ x: rx, y: ry, w: ROAD_W, h: ROAD_W });
     }
 
-    // Tipos de manzana
-    const n = N_ROADS + 1;
-    const center = Math.floor(n / 2);
-    const types = [];
-    for (let by = 0; by < n; by++) for (let bx = 0; bx < n; bx++) {
-      let t;
-      if (bx === center && by === center) t = 'plaza';
-      else {
-        const r = Math.random();
-        t = r < 0.3 ? 'tower' : r < 0.6 ? 'split2' : r < 0.84 ? 'split4' : r < 0.92 ? 'parking' : 'park';
+    this.buildings = [];
+    this.segments = [];
+    this.props = [];
+    this.parkingSpots = [];
+    this.blocks = [];
+    // Re-indexar buildingId de forma contigua para el renderer
+    let idMap = new Map();
+    let nid = 0;
+    for (const ch of this.chunks.values()) {
+      this.blocks.push({ x: ch.x0, y: ch.y0, w: BLOCK, h: BLOCK, type: ch.type });
+      for (const b of ch.buildings) {
+        const nb = {
+          id: nid, x: b.x, y: b.y, w: b.w, h: b.h, floors: b.floors, tint: b.tint,
+          segs: [], cols: b.cols, rows: b.rows,
+          damagedCols: b.damagedCols || 0, collapsing: b.collapsing, collapsed: b.collapsed,
+          lean: b.lean, pancakeZ: b.pancakeZ,
+        };
+        idMap.set(b, nid);
+        for (const seg of b.segs) {
+          seg.buildingId = nid;
+          nb.segs.push(seg);
+          this.segments.push(seg);
+        }
+        this.buildings.push(nb);
+        nid++;
       }
-      types.push({ bx, by, t });
+      for (const pr of ch.props) this.props.push(pr);
+      for (const pk of ch.parking) this.parkingSpots.push(pk);
     }
-    // Garantiza al menos un estacionamiento cerca del centro (autos para lanzar)
-    const near = types.find(b => b.bx === center + 1 && b.by === center);
-    if (near) near.t = 'parking';
-
-    let bid = 0;
-    for (const { bx, by, t } of types) {
-      const x0 = bx * PITCH, y0 = by * PITCH;
-      const blk = { x: x0, y: y0, w: BLOCK, h: BLOCK, type: t };
-      this.blocks.push(blk);
-      const m = 12;
-      if (t === 'tower') {
-        this._buildBuilding(x0 + m, y0 + m, BLOCK - 2 * m, BLOCK - 2 * m, bid++, 6 + Math.floor(Math.random() * 5));
-      } else if (t === 'split2') {
-        const horiz = Math.random() > 0.5;
-        const g = 10;
-        const half = (BLOCK - 2 * m - g) / 2;
-        for (let k = 0; k < 2; k++) {
-          const fl = 3 + Math.floor(Math.random() * 6);
-          if (horiz) this._buildBuilding(x0 + m, y0 + m + k * (half + g), BLOCK - 2 * m, half, bid++, fl);
-          else this._buildBuilding(x0 + m + k * (half + g), y0 + m, half, BLOCK - 2 * m, bid++, fl);
-        }
-      } else if (t === 'split4') {
-        const g = 10;
-        const half = (BLOCK - 2 * m - g) / 2;
-        for (let k = 0; k < 4; k++) {
-          const fl = 2 + Math.floor(Math.random() * 5);
-          this._buildBuilding(x0 + m + (k % 2) * (half + g), y0 + m + Math.floor(k / 2) * (half + g), half, half, bid++, fl);
-        }
-      } else if (t === 'parking') {
-        for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) {
-          if (Math.random() < 0.25) continue;
-          this.parkingSpots.push({
-            x: x0 + 40 + c * 50, y: y0 + 55 + r * 120,
-            angle: Math.PI / 2 + (r ? Math.PI : 0) + (Math.random() - 0.5) * 0.1,
-          });
-        }
-        this.props.push(new Prop(x0 + 8, y0 + 8, 'tree', { w: 18, h: 18, hp: 30 }));
-        this.props.push(new Prop(x0 + BLOCK - 26, y0 + BLOCK - 26, 'tree', { w: 18, h: 18, hp: 30 }));
-      } else if (t === 'park') {
-        for (let i = 0; i < 9; i++) {
-          const tx = x0 + 20 + Math.random() * (BLOCK - 60);
-          const ty = y0 + 20 + Math.random() * (BLOCK - 60);
-          this.props.push(new Prop(tx, ty, 'tree', { w: 20, h: 20, hp: 30, scale: 0.9 + Math.random() * 0.6 }));
-        }
-      } else if (t === 'plaza') {
-        for (let i = 0; i < 4; i++) {
-          const cxp = x0 + (i % 2 ? BLOCK - 34 : 16);
-          const cyp = y0 + (i < 2 ? 16 : BLOCK - 34);
-          this.props.push(new Prop(cxp, cyp, 'tree', { w: 18, h: 18, hp: 30, scale: 1.2 }));
-        }
-        this.props.push(new Prop(x0 + BLOCK / 2 - 8, y0 + 20, 'lamp', { w: 6, h: 6, hp: 18 }));
-        this.props.push(new Prop(x0 + BLOCK / 2 - 8, y0 + BLOCK - 26, 'lamp', { w: 6, h: 6, hp: 18 }));
-        this.spawn = { x: x0 + BLOCK / 2, y: y0 + BLOCK / 2 };
-      }
-    }
-    if (!this.spawn) this.spawn = { x: W / 2, y: H / 2 };
-
-    // Hidrantes en esquinas, faroles en banquetas
-    for (const rx of roadPos) for (const ry of roadPos) {
-      this.props.push(new Prop(rx - 13, ry - 13, 'hydrant', { w: 9, h: 9, hp: 20 }));
-    }
-    for (const r of roadPos) {
-      for (let s = 60; s < W; s += 165) {
-        if (this._inIntersectionBand(s)) continue;
-        this.props.push(new Prop(s, r - 9, 'lamp', { w: 6, h: 6, hp: 18 }));
-        this.props.push(new Prop(r + ROAD_W + 3, s, 'lamp', { w: 6, h: 6, hp: 18 }));
-      }
-    }
-
     this.segments.forEach((s, i) => { s.index = i; });
-    this.totalHp = this.segments.reduce((s, seg) => s + seg.maxHp, 0)
-      + this.props.reduce((s, p) => s + p.maxHp, 0);
+    this.totalHp = this.segments.reduce((a, seg) => a + seg.maxHp, 0)
+      + this.props.reduce((a, p) => a + p.maxHp, 0);
+    // Conservar destroyedHp acotado
+    this.destroyedHp = Math.min(this.destroyedHp, this.totalHp);
+  }
+
+  /** ¿El punto está dentro de la ventana activa (con margen)? */
+  inActiveBounds(x, y, margin = 80) {
+    return x >= this.minX - margin && y >= this.minY - margin && x <= this.w + margin && y <= this.h + margin;
   }
 
   _inIntersectionBand(s) {
+
     for (const r of this.roadPos) if (s > r - 30 && s < r + ROAD_W + 30) return true;
     return false;
-  }
-
-  _buildBuilding(bx, by, bw, bh, bid, floors) {
-    const tint = TINTS[Math.floor(Math.random() * TINTS.length)];
-    const cols = Math.max(2, Math.floor(bw / CELL));
-    const rows = Math.max(2, Math.floor(bh / CELL));
-    const actualW = cols * CELL;
-    const actualH = rows * CELL;
-    const ox = bx + (bw - actualW) / 2;
-    const oy = by + (bh - actualH) / 2;
-    const b = { id: bid, x: ox, y: oy, w: actualW, h: actualH, floors, tint, segs: [], cols, rows,
-      damagedCols: 0, collapsing: null, collapsed: false };
-    this.buildings.push(b);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const isEdge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
-        const seg = new Segment(ox + c * CELL, oy + r * CELL, CELL, CELL, {
-          kind: isEdge ? 'facade' : 'core', color: tint, buildingId: bid, floors,
-        });
-        seg.col = c; seg.row = r;
-        b.segs.push(seg);
-        this.segments.push(seg);
-      }
-    }
   }
 
   destructionPercent() {

@@ -377,14 +377,16 @@ export class Renderer3D {
     this.beam.visible = this.beamOuter.visible = false;
     scene.add(this.beam, this.beamOuter);
 
-    // Láser de los ojos: 2 núcleos + 2 halos aditivos, brillo de impacto
+    // Láser de los ojos: núcleo + halo + aura (grosor/brillo según Fuerza)
     this.lasers = [];
     for (let i = 0; i < 2; i++) {
-      const core = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff1c4, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
-      const glow = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xff3a12, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
-      core.visible = glow.visible = false; core.renderOrder = glow.renderOrder = 9;
-      scene.add(core, glow);
-      this.lasers.push({ core, glow });
+      const core = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff6d0, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const glow = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xff4a12, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const aura = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xff9a2a, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }));
+      core.visible = glow.visible = aura.visible = false;
+      core.renderOrder = glow.renderOrder = aura.renderOrder = 9;
+      scene.add(core, glow, aura);
+      this.lasers.push({ core, glow, aura });
     }
     this.laserHit = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sprite, color: 0xff7a2a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.laserHit.visible = false; this.laserHit.renderOrder = 10;
@@ -478,7 +480,7 @@ export class Renderer3D {
     const grass = makeGrassTile(); grass.repeat.set(120, 120);
     // v4.2: pasto exterior como marco alrededor del suelo de la ciudad (sin solaparse: los cráteres no quedan tapados
     // y no hay sobre-dibujado)
-    const ocx = world.w * S / 2, ocy = world.h * S / 2, OH = 800;
+    const ocx = ((world.minX ?? 0) + world.w) * S / 2, ocy = ((world.minY ?? 0) + world.h) * S / 2, OH = 1200;
     const gx0 = ground.minX * S - ocx, gx1 = (ground.minX + ground.spanX) * S - ocx;
     const gy0 = ground.minY * S - ocy, gy1 = (ground.minY + ground.spanY) * S - ocy;
     const frame = new THREE.Shape([new THREE.Vector2(-OH, -OH), new THREE.Vector2(OH, -OH), new THREE.Vector2(OH, OH), new THREE.Vector2(-OH, OH)]);
@@ -511,6 +513,21 @@ export class Renderer3D {
     this.debrisMesh.count = 0;
     this.debrisMesh.userData.ownMat = true;
     g.add(this.debrisMesh);
+    // v6: planos de corte del láser (emisivos) + piezas de ragdoll
+    const cutMat = new THREE.MeshStandardMaterial({
+      color: 0xffb060, emissive: 0xff6a20, emissiveIntensity: 2.2,
+      transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.cutMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.08, 1), cutMat, 28);
+    this.cutMesh.count = 0; this.cutMesh.frustumCulled = false; this.cutMesh.renderOrder = 5;
+    this.cutMesh.userData.ownMat = true; g.add(this.cutMesh);
+    const ragMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05 });
+    this.ragdollMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), ragMat, 64);
+    this.ragdollMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.ragdollMesh.castShadow = true; this.ragdollMesh.count = 0; this.ragdollMesh.frustumCulled = false;
+    this.ragdollMesh.userData.ownMat = true;
+    this.ragdollMesh.setColorAt(0, new THREE.Color(0x888888)); // crea instanceColor
+    g.add(this.ragdollMesh);
     const chunkMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.02, flatShading: true });
     this.chunkMesh = new THREE.InstancedMesh(makeChunkGeometry(3), chunkMat, MAX_DEBRIS + 120);
     this.chunkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -909,9 +926,18 @@ export class Renderer3D {
 
   _writeProps() {
     this.treeProps.forEach((t, i) => {
-      const m = this._propMatrix(t, t.scale);
-      this.trunkMesh.setMatrixAt(i, m);
-      this.folMesh.setMatrixAt(i, m);
+      if (t.cut) {
+        // Tocón: tronco corto, sin copa
+        const sc = t.scale || 1;
+        _p.set(t.cx * S, 0, t.cy * S);
+        _q.identity();
+        this.trunkMesh.setMatrixAt(i, _m.compose(_p, _q, _s.set(sc, sc * ((t.cutZ || 10) / 22), sc)));
+        this.folMesh.setMatrixAt(i, ZERO_M);
+      } else {
+        const m = this._propMatrix(t, t.scale);
+        this.trunkMesh.setMatrixAt(i, m);
+        this.folMesh.setMatrixAt(i, t.destroyed ? ZERO_M : m);
+      }
     });
     this.lampProps.forEach((l, i) => {
       const m = this._propMatrix(l, 1);
@@ -954,7 +980,9 @@ export class Renderer3D {
       this._writeProps();
     }
 
-    this._syncDebris(world);
+    this._syncDebris(world, game);
+    this._syncCutPlanes(world);
+    this._syncRagdolls(game);
     this._syncRubble(world);
     this._syncCracks(world);
     this.destr?.sync();
@@ -965,7 +993,7 @@ export class Renderer3D {
     this._syncPowers(game, dt);
   }
 
-  _syncDebris(world) {
+  _syncDebris(world, game) {
     let n = 0, nw = 0, nc = 0;
     const dm = this.debrisMesh, wm = this.wheelDebris, cm = this.chunkMesh;
     const cap = dm.instanceMatrix.count, capW = wm.instanceMatrix.count, capC = cm.instanceMatrix.count;
@@ -1018,6 +1046,51 @@ export class Renderer3D {
     dm.instanceMatrix.needsUpdate = true; wm.instanceMatrix.needsUpdate = true; cm.instanceMatrix.needsUpdate = true;
     if (dm.instanceColor) dm.instanceColor.needsUpdate = true;
     if (cm.instanceColor) cm.instanceColor.needsUpdate = true;
+  }
+
+
+  _syncCutPlanes(world) {
+    const mesh = this.cutMesh;
+    if (!mesh) return;
+    const list = world.cutPlanes || [];
+    let n = 0;
+    for (const c of list) {
+      if (n >= mesh.instanceMatrix.count) break;
+      const fade = Math.max(0.15, c.life / (c.maxLife || 1));
+      _p.set(c.x * S, c.z * S, c.y * S);
+      // Orientar el plano: por defecto horizontal; si hay nx/ny, vertical a lo largo del corte
+      if (c.nx || c.ny) {
+        const ang = Math.atan2(c.nx || 0, c.ny || 1);
+        _q.setFromAxisAngle(_v.set(0, 1, 0), ang);
+        _q.multiply(new THREE.Quaternion().setFromAxisAngle(_v.set(1, 0, 0), Math.PI / 2));
+      } else {
+        _q.identity();
+      }
+      _m.compose(_p, _q, _s.set((c.w || 16) * S, 0.05 + 0.08 * fade, Math.max(0.35, (c.h || 4) * S)));
+      mesh.setMatrixAt(n++, _m);
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.material) mesh.material.opacity = 0.55 + 0.35 * Math.sin(performance.now() * 0.02);
+  }
+
+  _syncRagdolls(game) {
+    const mesh = this.ragdollMesh;
+    if (!mesh || !game.ragdolls) { if (mesh) mesh.count = 0; return; }
+    let n = 0;
+    for (const d of game.ragdolls.parts) {
+      if (!d.alive || n >= mesh.instanceMatrix.count) continue;
+      const gz = (this.world?.craters?.length && d.liftZ < 4) ? this.world.groundAt(d.cx, d.cy) * S : 0;
+      _p.set(d.cx * S, d.liftZ * S + d.th * S * 0.5 + gz, d.cy * S);
+      _q.setFromEuler(new THREE.Euler(d.tumbleX || 0, -d.angle, d.tumbleZ || 0));
+      _m.compose(_p, _q, _s.set(d.w * S, d.th * S, d.h * S));
+      mesh.setMatrixAt(n, _m);
+      mesh.setColorAt?.(n, _c.setHex(colHex(d.color || '#888')));
+      n++;
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
   _syncRubble(world) {
@@ -1358,24 +1431,31 @@ export class Renderer3D {
         base = _t.set(game.player.x * S + Math.cos(f) * 0.17, (game.player.z || 0) * S + 1.8, game.player.y * S + Math.sin(f) * 0.17);
         right = _r.set(-Math.sin(f), 0, Math.cos(f));
       }
-      const fl = 0.8 + Math.random() * 0.4;
+      const prof = L.power || { thick: 1, f: 0.6 };
+      const fl = 0.85 + Math.random() * 0.35;
+      const thick = (prof.thick || 1) * fl;
       this.lasers.forEach((ls, i) => {
-        const a = _p.copy(base).addScaledVector(right, (i ? 1 : -1) * (game.camMode === 'fps' ? 0.11 : 0.07));
+        const a = _p.copy(base).addScaledVector(right, (i ? 1 : -1) * (game.camMode === 'fps' ? 0.12 : 0.08));
         const len = a.distanceTo(hit);
-        const th = game.camMode === 'fps' ? 0.35 : 1;
-        for (const [m, rad] of [[ls.core, 0.022 * fl * th], [ls.glow, 0.075 * fl * th]]) {
+        const th = game.camMode === 'fps' ? 0.4 : 1;
+        const pairs = [
+          [ls.core, 0.028 * thick * th],
+          [ls.glow, 0.09 * thick * th],
+          [ls.aura, 0.2 * thick * th],
+        ];
+        for (const [m, rad] of pairs) {
           m.visible = true; m.position.copy(a); m.lookAt(hit); m.scale.set(rad, rad, len);
         }
       });
       this.laserHit.visible = true;
       this.laserHit.position.copy(hit);
       const hd = hit.distanceTo(this.camera.position);
-      this.laserHit.scale.setScalar(Math.min(1.5, 0.25 + hd * 0.05) * (0.8 + Math.random() * 0.4));
+      this.laserHit.scale.setScalar(Math.min(2.8, (0.35 + hd * 0.06) * thick) * (0.85 + Math.random() * 0.35));
       this.psyLight.color.set(0xff5a1a);
       this.psyLight.position.copy(hit).y += 0.4;
-      this.psyLight.intensity = Math.min(1, 0.25 + hd * 0.06) * (60 + Math.random() * 40);
+      this.psyLight.intensity = Math.min(1.4, 0.3 + hd * 0.07) * (50 + thick * 55 + Math.random() * 40);
     } else {
-      for (const ls of this.lasers) ls.core.visible = ls.glow.visible = false;
+      for (const ls of this.lasers) ls.core.visible = ls.glow.visible = ls.aura.visible = false;
       this.laserHit.visible = false;
       if (!(pw.grabbed || pw.slamTarget)) this.psyLight.intensity = 0;
       this.psyLight.color.set(0x9a7bff);

@@ -29,8 +29,11 @@ function tex(canvas, { repeat = false, srgb = true, aniso = 8 } = {}) {
 
 /** Suelo de ciudad: calles, carriles, cruces peatonales, banquetas, manzanas */
 export function makeCityGround(world, margin) {
-  const minX = -margin, minY = -margin;
-  const spanX = world.w + margin * 2, spanY = world.h + margin * 2;
+  // v6: coords absolutas (streaming); minX/minY del mundo activo
+  const baseMinX = world.minX ?? 0, baseMinY = world.minY ?? 0;
+  const baseMaxX = world.w, baseMaxY = world.h;
+  const minX = baseMinX - margin, minY = baseMinY - margin;
+  const spanX = (baseMaxX - baseMinX) + margin * 2, spanY = (baseMaxY - baseMinY) + margin * 2;
   const k = Math.min(1.25, 2600 / Math.max(spanX, spanY));
   const [c, g] = cv(Math.round(spanX * k), Math.round(spanY * k));
   g.scale(k, k);
@@ -41,18 +44,16 @@ export function makeCityGround(world, margin) {
   g.fillRect(minX, minY, spanX, spanY);
   speckle(g, minX, minY, spanX, spanY, 9000, ['#55613f', '#66734c', '#4f5a3a', '#6d6a4c'], 2, 6);
 
-  // Rejilla extendida (incluye anillo fuera de límites)
-  const roadPos = [];
-  for (let i = -1; i <= world.roadPos.length; i++) roadPos.push(BLOCK + SIDEWALK_W + i * PITCH);
-  const blocksX = [];
-  for (let i = -1; i <= world.roadPos.length; i++) blocksX.push(i * PITCH);
+  const roadPos = world.roadPos.slice();
+  const blocksX = [...new Set(world.blocks.map(b => b.x))].sort((a, b) => a - b);
+  const blocksY = [...new Set(world.blocks.map(b => b.y))].sort((a, b) => a - b);
 
   // Manzanas
   const blockType = (x, y) => {
     const b = world.blocks.find(bb => Math.abs(bb.x - x) < 1 && Math.abs(bb.y - y) < 1);
     return b ? b.type : 'outer';
   };
-  for (const bx of blocksX) for (const by of blocksX) {
+  for (const bx of blocksX) for (const by of (blocksY || blocksX)) {
     const t = blockType(bx, by);
     if (t === 'park') {
       g.fillStyle = '#4c7a37'; g.fillRect(bx, by, BLOCK, BLOCK);
