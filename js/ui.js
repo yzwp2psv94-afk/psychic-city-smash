@@ -41,6 +41,7 @@ export class UI {
       this.sound = document.getElementById('optSound').checked;
       this.shake = document.getElementById('optShake').checked;
       setSoundEnabled(this.sound);
+      window.SFX?.setMuted(!this.sound);
     };
 
     document.querySelectorAll('.power-btn').forEach(btn => {

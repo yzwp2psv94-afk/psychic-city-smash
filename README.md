@@ -1,4 +1,4 @@
-# Psychic City Smash · v2.0 (3D)
+# Psychic City Smash · v3.0 (3D)
 
 Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Todas las texturas son procedurales (canvas) y no se descargan assets.
 
@@ -24,16 +24,19 @@ Luego visita `http://localhost:8080`.
 | Usar poder | **Clic izq.**: mantener para **cargar** y soltar para lanzar o disparar |
 | Elegir poder | **1–5** o barra inferior |
 | **Fuerza psíquica** | **Rueda del mouse**, **[ / ]** o **− / +**, o el slider *Fuerza* (abajo a la derecha) |
-| **Atrapar / congelar** objetos en vuelo | **Q** o **clic der.** (mantener) |
-| **Redirigir** lo congelado | **F**: mantener para cargar y soltar para lanzar hacia la mira |
-| Girar cámara | **Z / X** o arrastrar con **clic central** |
+| **Atrapar / congelar** objetos en vuelo | **Q** (mantener) |
+| **Redirigir** lo congelado | **G**: mantener para cargar y soltar para lanzar hacia la mira |
+| **Cámara**: 1.ª persona → 3.ª persona cerca → 3.ª persona lejana | **V** (clic = capturar el mouse para mirar; Esc lo suelta) |
+| **Volar** (activar/desactivar) | **F** · subir **Espacio** · bajar **C** / **Shift** |
+| **Láser de los ojos** | **L** o **clic der.** (mantener) |
+| Girar cámara | Mouse (capturado), **Z / X** o arrastrar con **clic central** |
 | Zoom | **Ctrl/Alt + rueda** |
 | Entrar / salir de auto | **E** (aparece el aviso «E · Entrar» sobre el auto cercano) |
 | Acelerar / frenar / reversa | **W/S** al conducir |
 | Girar | **A/D** al conducir |
 | Freno de mano / drift | **Shift** |
 | Enderezar auto / centrar cámara | **R** |
-| Pausar | **Espacio** / **Esc** / botón Pausa |
+| Pausar | **Espacio** (si no vuelas) / **Esc** / **P** / botón Pausa |
 
 ### Carga y fuerza
 
@@ -50,9 +53,12 @@ En el menú principal:
 1. **Móvil · iPhone 14**: controles táctiles tipo **mando** (se activan solos en iPhone/iPad/Android, pantalla completa en horizontal o vertical).
    - **Pulgar izquierdo**: joystick (mover / conducir) y, encima, una **cruceta de poderes** (↑ TK · → Onda · ↓ Aplastar · ← Slam · centro 🛡 Escudo).
    - **Pulgar derecho**: rombo de 4 botones: **⚡ PODER** (grande, abajo: mantener = agarrar/cargar, arrastrar = apuntar, soltar = lanzar), **💥 Slam**, **🧊 Atrapar**, **↗ Redirigir**; al lado **🚗 Entrar**, **🛑 Freno** y **⟲** enderezar.
-   - **Gatillos** en las esquinas: **L1 / R1** = zoom − / +, **L2 / R2** = girar cámara.
+   - **Gatillos** en las esquinas: **L1 / R1** = zoom − / + (en 1.ª persona cambia el campo de visión), **L2 / R2** = girar cámara.
+   - **🎥** (bajo L2/L1): cambia entre 1.ª persona → 3.ª persona cerca → 3.ª persona lejana. **Arrastrar en la pantalla = mirar** (arriba/abajo con límite) y todo se apunta con la **mira central** (✛).
+   - **🚀 Volar** (a la derecha del joystick) y, mientras vuelas, **▲ / ▼** para la altura.
+   - **👀 Láser** (arriba a la izquierda del rombo): mantener = rayos de los ojos hacia la mira; arrastrar sobre él = apuntar.
    - **⏸ Pausa** arriba al centro (en la pausa está *Fin sesión*). HUD compacto; los avisos aparecen una vez y se desvanecen.
-   - Tocar / mantener en el mapa 3D = igual que el mouse. **2 dedos**: pellizcar = zoom, deslizar = girar.
+   - **1 dedo** en el mapa 3D = mirar alrededor. **2 dedos**: pellizcar = zoom (distancia de cámara o FOV).
    - En escritorio: **Ctrl + rueda** = zoom (rueda sola = fuerza).
 2. **Control Bluetooth**: Gamepad API (se puede combinar con el layout iPhone).
 
@@ -75,7 +81,12 @@ En el menú principal:
 
 ## Cámaras y render
 
-- **A pie**: cámara elevada en ángulo, que se gira con Z/X, arrastre o el stick derecho.
+- **Tres cámaras** (🎥 / **V**):
+  - **1.ª persona**: desde los ojos, sin el cuerpo y con manos psíquicas brillantes; dentro de un auto es la vista del conductor.
+  - **3.ª persona cerca**: por encima del hombro.
+  - **3.ª persona lejana** (por defecto): más atrás y más alta, para ver la destrucción; reemplaza la vista aérea original.
+  - En 3.ª persona la cámara se acerca sola para no atravesar edificios (también la de persecución del auto). L1/R1 = distancia (FOV en 1.ª persona), L2/R2 = girar.
+  - El joystick mueve relativo a hacia dónde miras. La sacudida de cámara funciona en todas.
 - **Conduciendo**: cámara de persecución en tercera persona con retraso, y FOV que se abre con la velocidad. HUD de daño estilo Wreckfest más velocímetro.
 - Iluminación: sombras PCF suaves que siguen al jugador, cielo con degradado, niebla e iluminación hemisférica. Explosiones con luces puntuales.
 - Ciudad:
@@ -85,6 +96,17 @@ En el menú principal:
   - Grietas y cráteres en el asfalto.
 - Partículas (polvo, humo, fuego, chispas, vidrio, energía psíquica) en dos capas de `Points` con shader propio y tope de 1800.
 - Autos low-poly hechos con primitivas: abolladuras por vértice en el punto de impacto, vidrios que se agrietan y rompen, pintura chamuscada y piezas que se desprenden (capó, puertas, defensa, ruedas).
+
+## Volar y láser (v3)
+
+- **Volar**: levitas con aura y estela de energía. El joystick mueve en horizontal (más rápido que a pie); ▲/▼ suben y bajan hasta **1.5× el edificio más alto**, sin gravedad. Puedes pararte en las azoteas. Al desactivarlo caes, y si aterrizas desde lo alto hay **onda de choque** que daña lo cercano. Agarrar y lanzar sigue funcionando. Volar solo hace la recarga de energía un poco más lenta.
+- **Láser de los ojos**: dos rayos rojo-naranja aditivos de los ojos a la mira. Corta columnas (rompe pisos y puede provocar el colapso), calienta los autos (arden y luego explotan), suelta chispas y humo, deja marcas de quemado en el asfalto y hace parpadear la luz. Gasta energía mientras lo mantienes.
+
+## Gráficos (v3)
+
+- Ventanas **emisivas** encendidas al azar (tonos cálidos y fríos, intensidad variable). Fachadas con balcones, marcos y manchas; azoteas con parapeto y ductos.
+- Cielo con nubes procedurales; tone mapping ACES; sombra de contacto suave bajo el jugador (también al volar); humo y fuego con sprites suaves.
+- **Bloom** opcional solo en calidad alta (`?q=high` o escritorio potente).
 
 ## Destrucción cinematográfica (v2.1)
 

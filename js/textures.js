@@ -130,6 +130,29 @@ export function makeCityGround(world, margin) {
     g.fillRect(r + ROAD_W * off - 2.5, fullMin, 5, fullLen);
   }
   g.globalAlpha = 1;
+  // v3: parches de reparación, manchas de aceite y tapas de registro en los carriles
+  for (const r of roadPos) for (let s = fullMin + 30; s < fullMin + fullLen - 30; s += 70 + Math.random() * 120) {
+    const horiz = Math.random() < 0.5;
+    const off = r + ROAD_W * (0.15 + Math.random() * 0.6);
+    const kind = Math.random();
+    const [x, y] = horiz ? [s, off] : [off, s];
+    if (kind < 0.4) {
+      const pw = 14 + Math.random() * 26, ph = 8 + Math.random() * 12;
+      g.fillStyle = Math.random() < 0.5 ? '#2f3134' : '#45474b';
+      g.globalAlpha = 0.55; g.fillRect(x, y, horiz ? pw : ph, horiz ? ph : pw);
+      g.globalAlpha = 0.35; g.strokeStyle = '#1f2022'; g.lineWidth = 0.8; g.strokeRect(x, y, horiz ? pw : ph, horiz ? ph : pw);
+    } else if (kind < 0.75) {
+      const rr = 4 + Math.random() * 7;
+      const gr = g.createRadialGradient(x, y, 0, x, y, rr);
+      gr.addColorStop(0, 'rgba(18,18,22,0.55)'); gr.addColorStop(0.6, 'rgba(30,28,34,0.3)'); gr.addColorStop(1, 'rgba(30,30,30,0)');
+      g.globalAlpha = 1; g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.fill();
+    } else {
+      g.globalAlpha = 1; g.fillStyle = '#2a2b2d'; g.beginPath(); g.arc(x, y, 3.6, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#5b5d60'; g.lineWidth = 0.7; g.beginPath(); g.arc(x, y, 3.6, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI * 2); g.stroke();
+    }
+  }
+  g.globalAlpha = 1;
   // Bordillo
   g.fillStyle = '#d0ccc2';
   for (const r of roadPos) {
@@ -219,14 +242,19 @@ export function makeFacadeAtlas() {
     g.fillStyle = gr; g.fillRect(x, y, w, h);
     g.fillStyle = 'rgba(255,255,255,0.12)';
     g.beginPath(); g.moveTo(x, y + h * 0.7); g.lineTo(x + w * 0.4, y); g.lineTo(x + w * 0.55, y); g.lineTo(x, y + h); g.fill();
-    if (lit) { ge.fillStyle = lit; ge.fillRect(x + 2, y + 2, w - 4, h - 4); }
+    // Máscara emisiva para TODAS las ventanas: el shader decide cuáles están encendidas (y su color)
+    const eg = ge.createLinearGradient(x, y, x, y + h);
+    eg.addColorStop(0, lit ? '#ffffff' : '#e8e8e8'); eg.addColorStop(1, '#9a9a9a');
+    ge.fillStyle = eg; ge.fillRect(x + 3, y + 3, w - 6, h - 6);
+    // marco
+    g.strokeStyle = 'rgba(60,60,60,0.55)'; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, h - 2);
   };
 
   // Estilo 0: oficina de vidrio
   {
     const [x0, y0] = ATLAS.facade[0];
     g.fillStyle = '#e8e8e6'; g.fillRect(x0, y0, 256, 256);
-    for (let i = 0; i < 2; i++) glass(x0 + 14 + i * 118, y0 + 30, 110, 190, i === 1 ? '#5a4a30' : null);
+    for (let i = 0; i < 4; i++) glass(x0 + 10 + i * 60 + (i >= 2 ? 6 : 0), y0 + 30, 50, 190, i % 2 === 0);
     g.fillStyle = '#cfcfcc'; g.fillRect(x0, y0 + 226, 256, 30);
     g.fillStyle = '#b9b9b5'; g.fillRect(x0 + 124, y0 + 30, 8, 190);
     g.fillStyle = '#9d9d99'; g.fillRect(x0, y0 + 250, 256, 6);
@@ -239,7 +267,10 @@ export function makeFacadeAtlas() {
     for (let i = 0; i < 2; i++) {
       const wx = x0 + 34 + i * 112, wy = y0 + 58;
       g.fillStyle = '#d9d2c6'; g.fillRect(wx - 8, wy - 8, 92, 136);
-      glass(wx, wy, 76, 120, i === 0 && Math.random() > 0.3 ? '#6b5530' : null);
+      glass(wx, wy, 76, 120, true);
+      // balcón con barandal
+      g.fillStyle = 'rgba(70,70,75,0.85)'; g.fillRect(wx - 6, wy + 96, 88, 3);
+      for (let k = 0; k < 9; k++) g.fillRect(wx - 6 + k * 11, wy + 96, 2, 24);
       g.fillStyle = '#e9e4dc'; g.fillRect(wx + 36, wy, 4, 120); g.fillRect(wx, wy + 56, 76, 4);
       g.fillStyle = '#bfb6a8'; g.fillRect(wx - 10, wy + 120, 96, 8);
     }
@@ -250,9 +281,11 @@ export function makeFacadeAtlas() {
     const [x0, y0] = ATLAS.facade[2];
     g.fillStyle = '#d6d3cd'; g.fillRect(x0, y0, 256, 256);
     speckle(g, x0, y0, 256, 256, 2500, ['#c9c6c0', '#e0ddd8', '#bdbab4'], 1, 2.5);
-    for (let i = 0; i < 3; i++) {
-      glass(x0 + 22 + i * 78, y0 + 70, 56, 96, i === 2 ? '#4f4026' : null);
-      g.fillStyle = '#a9a6a0'; g.fillRect(x0 + 18 + i * 78, y0 + 166, 64, 6);
+    for (let i = 0; i < 4; i++) {
+      const wx = x0 + 14 + i * 60 + (i >= 2 ? 4 : 0);
+      glass(wx, y0 + 70, 44, 96, true);
+      g.fillStyle = '#a9a6a0'; g.fillRect(wx - 4, y0 + 166, 52, 6);
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(wx - 4, y0 + 172, 52, 10); // mancha de lluvia
     }
     g.fillStyle = '#b8b5af'; g.fillRect(x0, y0, 256, 14); g.fillRect(x0, y0 + 242, 256, 14);
   }
@@ -261,6 +294,9 @@ export function makeFacadeAtlas() {
     const [x0, y0, w, h] = ATLAS.roof;
     g.fillStyle = '#6c6a66'; g.fillRect(x0, y0, w, h);
     speckle(g, x0, y0, w, h, 2200, ['#5f5d59', '#7a7873', '#55534f', '#83807a'], 1, 2.4);
+    g.strokeStyle = '#8f8c86'; g.lineWidth = 6; g.strokeRect(x0 + 3, y0 + 3, w - 6, h - 6); // pretil
+    g.fillStyle = 'rgba(30,30,30,0.35)';
+    for (let i = 0; i < 3; i++) g.fillRect(x0 + rnd(20, w - 40), y0 + rnd(20, h - 40), rnd(10, 22), rnd(8, 16)); // manchas / ductos
   }
   // Concreto roto (núcleo expuesto)
   {
@@ -367,6 +403,24 @@ export function makeSoftSprite() {
   gr.addColorStop(0.4, 'rgba(255,255,255,0.7)');
   gr.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return tex(c, { srgb: false });
+}
+
+/** Sprite de humo/polvo con textura de nube (bordes suaves y ruido) */
+export function makePuffSprite() {
+  const [c, g] = cv(128, 128);
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.random() * 30;
+    const x = 64 + Math.cos(a) * r, y = 64 + Math.sin(a) * r, rad = rnd(18, 34);
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, 'rgba(255,255,255,0.32)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  }
+  // recorte circular suave para que no se vean bordes cuadrados
+  g.globalCompositeOperation = 'destination-in';
+  const m = g.createRadialGradient(64, 64, 20, 64, 64, 63);
+  m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = m; g.fillRect(0, 0, 128, 128);
   return tex(c, { srgb: false });
 }
 

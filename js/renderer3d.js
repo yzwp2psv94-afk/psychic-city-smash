@@ -1,13 +1,13 @@
 /**
  * Render 3D con Three.js: lee el estado lógico (px) y lo dibuja en metros (×0.1).
- * Cámara aérea inclinada (a pie) y cámara de persecución (manejando).
+ * Cámaras: 1.ª persona, 3.ª persona cerca y lejana (a pie) y persecución / conductor (manejando).
  */
 
 import * as THREE from 'three';
 import { FLOOR_H, MAX_RUBBLE, MAX_CRACKS, MAX_DEBRIS, BLOCK, PITCH, SIDEWALK_W } from './world.js';
 import {
   makeCityGround, makeFacadeAtlas, ATLAS, makeBackdropFacade, makeCrackTexture,
-  makeCraterTexture, makeSoftSprite, makeGrassTile,
+  makeCraterTexture, makeSoftSprite, makeGrassTile, makePuffSprite, makeBlobShadow,
 } from './textures.js';
 import { CarModel, mergeGeometries } from './carmodel.js';
 import { MAX_PARTICLES } from './physics.js';
@@ -23,6 +23,10 @@ const _c = new THREE.Color();
 const _v = new THREE.Vector3();
 const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
 const SUN_DIR = new THREE.Vector3(-0.55, 0.62, -0.56).normalize();
+const _d = new THREE.Vector3();
+const _t = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _r = new THREE.Vector3();
 
 /** Trozo irregular de concreto: icosaedro con vértices desplazados (sin grietas entre caras) */
 function makeChunkGeometry(seed = 1) {
@@ -68,7 +72,7 @@ export class Renderer3D {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.12;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
@@ -77,6 +81,8 @@ export class Renderer3D {
     this.camTarget = new THREE.Vector3();
     this.camPos = new THREE.Vector3(0, 40, 40);
     this.quality = 'high';
+    this.scene.add(this.camera);  // las manos psíquicas (1.ª persona) cuelgan de la cámara
+    this.composer = null; this.bloomOn = false;
     this._initStatic();
     this.worldGroup = null;
     this.carModels = new Map();
@@ -98,13 +104,47 @@ export class Renderer3D {
       this.renderer.shadowMap.type = type;
       this.scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
     }
+    // Bloom barato solo en calidad alta (escritorio); apagado en media/baja
+    if (q === 'high') this.setBloom(true).catch(() => { this.bloomOn = false; });
+    else this.bloomOn = false;
     return Q;
+  }
+
+  async setBloom(on) {
+    if (!on) { this.bloomOn = false; return; }
+    if (!this.composer) {
+      if (this._bloomLoading) return this._bloomLoading;
+      this._bloomLoading = (async () => {
+        const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
+          import('three/addons/postprocessing/EffectComposer.js'),
+          import('three/addons/postprocessing/RenderPass.js'),
+          import('three/addons/postprocessing/UnrealBloomPass.js'),
+          import('three/addons/postprocessing/OutputPass.js'),
+        ]);
+        const c = new EffectComposer(this.renderer);
+        c.addPass(new RenderPass(this.scene, this.camera));
+        this.bloomPass = new UnrealBloomPass(new THREE.Vector2(this.width, this.height), 0.42, 0.55, 0.88);
+        c.addPass(this.bloomPass);
+        c.addPass(new OutputPass());
+        this.composer = c;
+        this._sizeComposer();
+      })();
+      await this._bloomLoading;
+    }
+    this.bloomOn = this.quality === 'high';
+  }
+
+  _sizeComposer() {
+    if (!this.composer) return;
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(this.width, this.height);
   }
 
   setSize(w, h, dpr = 1) {
     this.width = w; this.height = h;
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
+    this._sizeComposer();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this._updatePointScale();
@@ -139,6 +179,18 @@ export class Renderer3D {
           vec3 c = mix(horizon, mid, smoothstep(0.0, 0.18, h)); c = mix(c, top, smoothstep(0.18, 0.75, h));
           float s = max(dot(normalize(vDir), normalize(sunDir)), 0.0);
           c += vec3(1.0,0.82,0.55) * pow(s, 64.0) * 1.2 + vec3(1.0,0.7,0.4) * pow(s, 6.0) * 0.25;
+          // nubes altas baratas (2 octavas de ruido de valor)
+          vec2 uv = vDir.xz / max(0.12, vDir.y) * 0.9;
+          vec2 i0 = floor(uv), f0 = fract(uv); f0 = f0*f0*(3.0-2.0*f0);
+          float a0 = fract(sin(dot(i0, vec2(127.1,311.7)))*43758.5), b0 = fract(sin(dot(i0+vec2(1,0), vec2(127.1,311.7)))*43758.5);
+          float c0 = fract(sin(dot(i0+vec2(0,1), vec2(127.1,311.7)))*43758.5), d0 = fract(sin(dot(i0+vec2(1,1), vec2(127.1,311.7)))*43758.5);
+          float n = mix(mix(a0,b0,f0.x), mix(c0,d0,f0.x), f0.y);
+          vec2 uv2 = uv*2.7; vec2 i1 = floor(uv2), f1 = fract(uv2); f1 = f1*f1*(3.0-2.0*f1);
+          float a1 = fract(sin(dot(i1, vec2(127.1,311.7)))*43758.5), b1 = fract(sin(dot(i1+vec2(1,0), vec2(127.1,311.7)))*43758.5);
+          float c1 = fract(sin(dot(i1+vec2(0,1), vec2(127.1,311.7)))*43758.5), d1 = fract(sin(dot(i1+vec2(1,1), vec2(127.1,311.7)))*43758.5);
+          n = n*0.65 + mix(mix(a1,b1,f1.x), mix(c1,d1,f1.x), f1.y)*0.35;
+          float cl = smoothstep(0.55, 0.85, n) * smoothstep(0.02, 0.25, h) * 0.55;
+          c = mix(c, vec3(1.0,0.93,0.86) + vec3(0.2,0.1,0.0)*pow(s,4.0), cl);
           if (h < 0.0) c = mix(horizon, vec3(0.55,0.5,0.45), smoothstep(0.0, -0.2, h));
           gl_FragColor = vec4(c, 1.0); }`,
     });
@@ -183,6 +235,7 @@ export class Renderer3D {
     // Texturas compartidas
     this.atlas = makeFacadeAtlas();
     this.sprite = makeSoftSprite();
+    this.puff = makePuffSprite();
     this.crackTex = makeCrackTexture();
     this.craterTex = makeCraterTexture();
 
@@ -197,7 +250,7 @@ export class Renderer3D {
       geo.setAttribute('psize', new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage));
       geo.setDrawRange(0, 0);
       const mat = new THREE.ShaderMaterial({
-        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { map: { value: this.sprite }, scale: { value: 600 } }]),
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { map: { value: null }, scale: { value: 600 } }]),
         vertexShader: `attribute vec4 pcolor; attribute float psize; uniform float scale; varying vec4 vColor;
           #include <fog_pars_vertex>
           void main(){ vColor = pcolor; vec4 mvPosition = modelViewMatrix * vec4(position,1.0);
@@ -213,6 +266,7 @@ export class Renderer3D {
         transparent: true, depthWrite: false, fog: true,
         blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       });
+      mat.uniforms.map.value = additive ? this.sprite : this.puff; // humo/polvo con textura de nube
       const pts = new THREE.Points(geo, mat);
       pts.frustumCulled = false;
       pts.renderOrder = additive ? 6 : 5;
@@ -272,6 +326,31 @@ export class Renderer3D {
     this.beamOuter = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0x7b5cff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.beam.visible = this.beamOuter.visible = false;
     scene.add(this.beam, this.beamOuter);
+
+    // Láser de los ojos: 2 núcleos + 2 halos aditivos, brillo de impacto
+    this.lasers = [];
+    for (let i = 0; i < 2; i++) {
+      const core = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff1c4, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const glow = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xff3a12, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+      core.visible = glow.visible = false; core.renderOrder = glow.renderOrder = 9;
+      scene.add(core, glow);
+      this.lasers.push({ core, glow });
+    }
+    this.laserHit = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sprite, color: 0xff7a2a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.laserHit.visible = false; this.laserHit.renderOrder = 10;
+    scene.add(this.laserHit);
+
+    // Manos psíquicas (1.ª persona)
+    const handMat = new THREE.MeshBasicMaterial({ color: 0xb39dff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+    this.hands = [new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 8), handMat), new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 8), handMat)];
+    this.hands[0].position.set(-0.15, -0.115, -0.36); this.hands[1].position.set(0.15, -0.115, -0.36);
+    this.handGlow = this.hands.map(h => { const g2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sprite, color: 0x9a7bff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false })); g2.scale.setScalar(0.07); h.add(g2); return g2; });
+    for (const h of this.hands) { h.visible = false; h.renderOrder = 30; this.camera.add(h); }
+
+    // Sombra de contacto del jugador (clave para medir la altura al volar)
+    this.playerBlob = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), new THREE.MeshBasicMaterial({ map: makeBlobShadow(), transparent: true, depthWrite: false, opacity: 0.75 }));
+    this.playerBlob.rotation.x = -Math.PI / 2; this.playerBlob.renderOrder = 1;
+    scene.add(this.playerBlob);
 
     // Escudo
     this.shield = new THREE.Mesh(new THREE.SphereGeometry(1.6, 24, 16), new THREE.MeshBasicMaterial({ color: 0x00e0a8, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -431,6 +510,37 @@ export class Renderer3D {
       roughness: 0.62, metalness: 0.08,
     });
     atlasMat.userData = {};
+    atlasMat.emissiveIntensity = 1.0;
+    // Ventanas encendidas al azar (por piso, cara y mitad de fachada) con tonos cálidos/fríos
+    atlasMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWinCell; varying vec3 vWinLocal; varying vec3 vWinN; varying float vWinY;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vWinCell = instanceMatrix[3].xyz;
+            vWinY = (modelMatrix * instanceMatrix * vec4(position, 1.0)).y;
+          #else
+            vWinCell = vec3(0.0);
+            vWinY = (modelMatrix * vec4(position, 1.0)).y;
+          #endif
+          vWinLocal = position; vWinN = normal;`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWinCell; varying vec3 vWinLocal; varying vec3 vWinN; varying float vWinY;')
+        .replace('#include <emissivemap_fragment>', `
+          #ifdef USE_EMISSIVEMAP
+            vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );
+            bool zFace = abs(vWinN.z) > 0.5;
+            float hx = zFace ? vWinLocal.x : vWinLocal.z;
+            float fid = zFace ? (vWinN.z > 0.0 ? 0.0 : 1.0) : (vWinN.x > 0.0 ? 2.0 : 3.0);
+            float half_ = step(0.0, hx);
+            float flr = floor(vWinY / ${(FLOOR_H * S).toFixed(3)} + 0.001);
+            vec3 cq = mod(floor(vWinCell * 4.0 + 0.5), 97.0);
+            float hsh = fract(sin(dot(vec3(cq.x * 3.1 + fid * 17.0 + half_ * 5.3, flr * 7.7 + cq.y, cq.z * 1.9), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+            float lit = step(0.56, hsh);
+            vec3 tint = mix(vec3(1.0, 0.74, 0.42), vec3(0.72, 0.86, 1.0), step(0.82, fract(hsh * 13.0)));
+            totalEmissiveRadiance *= emissiveColor.rgb * lit * tint * (0.55 + fract(hsh * 7.0) * 0.9);
+          #endif`);
+    };
     this.buildingMat = atlasMat;
     const geos = [];
     for (let s = 0; s < 3; s++) {
@@ -748,8 +858,8 @@ export class Renderer3D {
     for (let i = 0; i < total; i++) {
       const c = world.cracks[i];
       _q.setFromAxisAngle(_v.set(0, 1, 0), c.angle);
-      if (c.type === 'crater') {
-        const sz = 5.5 * c.size;
+      if (c.type === 'crater' || c.type === 'scorch') {
+        const sz = (c.type === 'scorch' ? 2.2 : 5.5) * c.size;
         _p.set(c.x * S, 0.03 + (nr % 7) * 0.002, c.y * S);
         this.craterMesh.setMatrixAt(nr++, _m.compose(_p, _q, _s.set(sz, 1, sz)));
       } else {
@@ -880,10 +990,31 @@ export class Renderer3D {
     const t = performance.now() / 1000;
     const p = game.player;
     const driving = !!game.drivenCar;
-    this.player.group.visible = !driving;
+    const fps = game.camMode === 'fps';
+    this.player.group.visible = !driving && !fps;
+    for (const h of this.hands) h.visible = fps && !driving;
+    if (fps && !driving) {
+      const ch = game.powers.charging ? game.powers.charge : 0;
+      const lz = game.laser?.on;
+      this.hands.forEach((h, i) => {
+        h.position.y = -0.115 + Math.sin(t * 2.2 + i) * 0.004 + (game.powers.grabbed ? 0.02 : 0);
+        h.material.color.set(lz ? '#ff8a4a' : ch >= 1 ? '#ff9cf0' : '#b39dff');
+        this.handGlow[i].scale.setScalar(0.045 + ch * 0.05 + (game.powers.grabbed ? 0.03 : 0) + (lz ? 0.03 : 0));
+      });
+    }
+    // Sombra de contacto
+    const gz = p.groundZ || 0, alt = Math.max(0, (p.z || 0) - gz);
+    this.playerBlob.visible = !driving;
+    this.playerBlob.position.set(p.x * S, gz * S + 0.04, p.y * S);
+    this.playerBlob.scale.setScalar(Math.max(0.45, 1.1 - alt * S / 25));
+    this.playerBlob.material.opacity = Math.max(0.15, 0.75 - alt * S / 40);
     if (!driving) {
       const moving = Math.hypot(p.vx || 0, p.vy || 0) > 5;
-      this._poseHero(this.player, p.x, p.y, 0, p.facing ?? 0, p.walkPhase ?? 0, moving, t);
+      this._poseHero(this.player, p.x, p.y, p.z || 0, p.facing ?? 0, p.walkPhase ?? 0, moving && !p.flying, t);
+      if (p.flying) {
+        this.player.legL.rotation.z = 0.25; this.player.legR.rotation.z = 0.2;
+        this.player.aura.scale.setScalar(1.35 + Math.sin(t * 6) * 0.1);
+      }
       const casting = game.powers.grabbed || game.powers.charging || game.powers.catching;
       if (casting) { this.player.armR.rotation.z = -1.3; this.player.armL.rotation.z = game.powers.catching ? -1.3 : this.player.armL.rotation.z; }
       this.player.glowMat.emissiveIntensity = 2 + (game.powers.charging ? game.powers.charge * 4 : 0);
@@ -923,7 +1054,7 @@ export class Renderer3D {
 
   _syncPowers(game, dt) {
     const pw = game.powers;
-    const src = game.drivenCar ? { x: game.drivenCar.cx, y: game.drivenCar.cy, z: 16 } : { x: game.player.x, y: game.player.y, z: 15 };
+    const src = game.drivenCar ? { x: game.drivenCar.cx, y: game.drivenCar.cy, z: 16 } : { x: game.player.x, y: game.player.y, z: 15 + (game.player.z || 0) };
     const aim = game.aim;
     const col = POWERS[pw.selected].color;
     const t = performance.now() / 1000;
@@ -935,7 +1066,7 @@ export class Renderer3D {
     this.reticle.scale.setScalar(rs * (1 + Math.sin(t * 6) * 0.04));
     this.reticle.material.color.set(pw.catching ? '#7ff3ff' : col);
     this.reticleDot.position.copy(this.reticle.position);
-    this.reticle.visible = this.reticleDot.visible = game.showReticle !== false;
+    this.reticle.visible = this.reticleDot.visible = game.showReticle !== false && (game.camMode !== 'fps' || pw.charging);
     const ci = Math.round(pw.charge * 32);
     this.chargeArc.geometry = this.chargeArcs[ci];
     this.chargeArc.visible = pw.charging && this.reticle.visible;
@@ -987,6 +1118,47 @@ export class Renderer3D {
       this.catchRings[k].scale.set(r * S * pulse, 1, r * S * pulse);
     }
 
+    // Láser de los ojos
+    const L = game.laser;
+    if (L && L.on && L.hit) {
+      const hit = _b.set(L.hit.x * S, L.hit.z * S, L.hit.y * S);
+      let base, right;
+      if (game.camMode === 'fps') {
+        base = _t.copy(this.camera.position);
+        this.camera.getWorldDirection(_d);
+        right = _r.set(-_d.z, 0, _d.x).normalize();
+        base.y -= 0.1; base.addScaledVector(_d, 0.45);
+      } else if (game.drivenCar) {
+        const c = game.drivenCar; base = _t.set(c.cx * S, (c.liftZ || 0) * S + 1.45, c.cy * S);
+        right = _r.set(-Math.sin(c.angle), 0, Math.cos(c.angle));
+      } else {
+        const f = game.player.facing ?? 0;
+        base = _t.set(game.player.x * S + Math.cos(f) * 0.17, (game.player.z || 0) * S + 1.8, game.player.y * S + Math.sin(f) * 0.17);
+        right = _r.set(-Math.sin(f), 0, Math.cos(f));
+      }
+      const fl = 0.8 + Math.random() * 0.4;
+      this.lasers.forEach((ls, i) => {
+        const a = _p.copy(base).addScaledVector(right, (i ? 1 : -1) * (game.camMode === 'fps' ? 0.11 : 0.07));
+        const len = a.distanceTo(hit);
+        const th = game.camMode === 'fps' ? 0.35 : 1;
+        for (const [m, rad] of [[ls.core, 0.022 * fl * th], [ls.glow, 0.075 * fl * th]]) {
+          m.visible = true; m.position.copy(a); m.lookAt(hit); m.scale.set(rad, rad, len);
+        }
+      });
+      this.laserHit.visible = true;
+      this.laserHit.position.copy(hit);
+      const hd = hit.distanceTo(this.camera.position);
+      this.laserHit.scale.setScalar(Math.min(1.5, 0.25 + hd * 0.05) * (0.8 + Math.random() * 0.4));
+      this.psyLight.color.set(0xff5a1a);
+      this.psyLight.position.copy(hit).y += 0.4;
+      this.psyLight.intensity = Math.min(1, 0.25 + hd * 0.06) * (60 + Math.random() * 40);
+    } else {
+      for (const ls of this.lasers) ls.core.visible = ls.glow.visible = false;
+      this.laserHit.visible = false;
+      if (!(pw.grabbed || pw.slamTarget)) this.psyLight.intensity = 0;
+      this.psyLight.color.set(0x9a7bff);
+    }
+
     // Escudo
     this.shield.visible = pw.shieldTimer > 0;
     if (this.shield.visible) {
@@ -1004,7 +1176,45 @@ export class Renderer3D {
     const cam = this.camera;
     const k = 1 - Math.exp(-dt * (state.mode === 'drive' ? 6 : 7));
     let fov = 50;
-    if (state.mode === 'drive' && state.car) {
+    const view = state.view || 'top';
+    let snap = false;
+    if (state.mode === 'drive' && state.car && view === 'fps') {
+      // Vista del conductor
+      const c = state.car;
+      const h = c.angle + (state.lookOffset || 0), pt = state.lookPitch || 0;
+      const eye = _t.set((c.cx + Math.cos(c.angle) * 3) * S, (c.liftZ || 0) * S + 1.3, (c.cy + Math.sin(c.angle) * 3) * S);
+      this.camPos.copy(eye);
+      this.camTarget.set(eye.x + Math.cos(h) * Math.cos(pt) * 10, eye.y - Math.sin(pt) * 10, eye.z + Math.sin(h) * Math.cos(pt) * 10);
+      fov = state.fpsFov || 70; snap = true;
+      this._chaseHeading = null;
+    } else if (state.mode === 'foot' && view === 'fps') {
+      const yaw = state.yaw || 0, pt = state.lookPitch || 0;
+      const dir = _d.set(-Math.sin(yaw) * Math.cos(pt), -Math.sin(pt), -Math.cos(yaw) * Math.cos(pt));
+      const eye = _t.set(state.x * S, (state.z || 0) * S + 1.68, state.y * S);
+      this.camPos.copy(eye);
+      this.camTarget.copy(eye).addScaledVector(dir, 10);
+      fov = state.fpsFov || 70; snap = true;
+      this._chaseHeading = null;
+    } else if (state.mode === 'foot' && (view === 'third' || view === 'far')) {
+      const far = view === 'far';
+      const yaw = state.yaw || 0, pt = state.lookPitch || 0;
+      const dir = _d.set(-Math.sin(yaw) * Math.cos(pt), -Math.sin(pt), -Math.cos(yaw) * Math.cos(pt));
+      // por encima del hombro: la mira central no queda tapada por el personaje
+      const sh = far ? 0.5 : 1.0;
+      const tgt = _t.set(state.x * S + Math.cos(yaw) * sh, (state.z || 0) * S + (far ? 1.4 : 1.8), state.y * S - Math.sin(yaw) * sh);
+      let dist = state.tDist || 7;
+      // Evita atravesar edificios: rayo desde el jugador hacia atrás
+      const rc = this.raycastPx(tgt.x / S, tgt.z / S, tgt.y / S, -dir.x, -dir.z, -dir.y, this.world, { maxT: dist / S + 4 });
+      let pulled = false;
+      if (rc.hit && rc.hit !== 'ground' && rc.t * S < dist + 0.3) { dist = Math.max(0.9, rc.t * S - 0.4); pulled = true; }
+      const desired = _b.copy(tgt).addScaledVector(dir, -dist);
+      desired.y = Math.max(desired.y, 0.35);
+      if (pulled || this._lastView !== view) this.camPos.copy(desired);
+      else this.camPos.lerp(desired, 1 - Math.exp(-dt * 14));
+      this.camTarget.copy(tgt);
+      fov = far ? 58 : 62;
+      this._chaseHeading = null;
+    } else if (state.mode === 'drive' && state.car) {
       const c = state.car;
       const spd = c.speed;
       // la cámara sigue el rumbo con retraso, mezclado con la dirección de la velocidad (drift)
@@ -1024,6 +1234,16 @@ export class Renderer3D {
       const back = (7.2 + Math.min(2.2, spd / 160)) * zf;
       const tx = c.cx * S, tz = c.cy * S, ty = c.liftZ * S;
       const desired = _v.set(tx - Math.cos(h) * back, ty + (2.6 + Math.min(0.8, spd / 400)) * zf, tz - Math.sin(h) * back);
+      // anti-atravesar edificios: acorta la cámara si un edificio queda entre el auto y ella
+      {
+        const ddx = desired.x - tx, ddy = desired.y - (ty + 1.2), ddz = desired.z - tz, dl = Math.hypot(ddx, ddy, ddz) || 1;
+        const rc = this.raycastPx(tx / S, tz / S, (ty + 1.2) / S, ddx / dl, ddz / dl, ddy / dl, this.world, { maxT: dl / S + 3 });
+        if (rc.hit && rc.hit !== 'ground' && rc.t * S < dl) {
+          const k2 = Math.max(0.15, (rc.t * S - 0.4) / dl);
+          desired.set(tx + ddx * k2, ty + 1.2 + ddy * k2, tz + ddz * k2);
+          this.camPos.copy(desired);
+        }
+      }
       this.camPos.lerp(desired, 1 - Math.exp(-dt * 9));
       this.camTarget.lerp(_p.set(tx + Math.cos(h) * 3.5, ty + 1.0, tz + Math.sin(h) * 3.5), 1 - Math.exp(-dt * 12));
       fov = 62 + Math.min(14, spd / 25);
@@ -1031,7 +1251,7 @@ export class Renderer3D {
       this._chaseHeading = null;
       const yaw = state.yaw || 0, pitch = state.pitch ?? 0.98, dist = state.dist ?? 36;
       const tx = state.x * S, tz = state.y * S;
-      this.camTarget.lerp(_p.set(tx, 0.8, tz), k);
+      this.camTarget.lerp(_p.set(tx, 0.8 + (state.z || 0) * S, tz), k);
       const desired = _v.set(
         this.camTarget.x + Math.sin(yaw) * Math.cos(pitch) * dist,
         this.camTarget.y + Math.sin(pitch) * dist,
@@ -1040,14 +1260,17 @@ export class Renderer3D {
       this.camPos.lerp(desired, k);
       fov = state.fov || 50;
     }
+    const near = view === 'fps' ? 0.06 : 0.2;
+    if (cam.near !== near) { cam.near = near; cam.updateProjectionMatrix(); }
     if (Math.abs(cam.fov - fov) > 0.05) {
-      cam.fov += (fov - cam.fov) * Math.min(1, dt * 4);
+      cam.fov += (fov - cam.fov) * Math.min(1, dt * (snap ? 10 : 4));
       cam.updateProjectionMatrix();
       this._updatePointScale();
     }
+    this._lastView = view;
     cam.position.copy(this.camPos);
     if (state.shake > 0) {
-      const a = state.shake * 0.025;
+      const a = state.shake * (snap ? 0.012 : 0.025);
       cam.position.x += (Math.random() - 0.5) * a;
       cam.position.y += (Math.random() - 0.5) * a;
       cam.position.z += (Math.random() - 0.5) * a;
@@ -1063,41 +1286,57 @@ export class Renderer3D {
     this.sky.position.copy(cam.position);
   }
 
-  /** Rayo desde pantalla → punto en el mundo (px) contra suelo y columnas de edificios */
-  pick(ndcX, ndcY, world) {
-    const cam = this.camera;
-    const o = cam.position.clone();
-    const d = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(cam).sub(o).normalize();
-    // a px: x→x, y(alto)→z, z→y
-    const ox = o.x / S, oy = o.z / S, oz = o.y / S;
-    const dx = d.x, dy = d.z, dz = d.y;
-    let best = Infinity, hz = 0;
-    if (dz < -1e-4) best = -oz / dz;
-    else best = 1400 / Math.max(0.05, Math.hypot(dx, dy));
+  /**
+   * Rayo en px (x, y = planta, z = altura) contra suelo, columnas de edificios y (opcional) autos.
+   * d debe estar normalizado. Devuelve la distancia t (px) o Infinity.
+   */
+  raycastPx(ox, oy, oz, dx, dy, dz, world, { vehicles = null, skip = null, maxT = Infinity } = {}) {
+    let best = maxT, hit = null;
+    if (dz < -1e-4) { const t = -oz / dz; if (t < best) { best = t; hit = 'ground'; } }
+    const slab = (bx, by, bw, bh, z0, z1) => {
+      let tmin = 0, tmax = Infinity;
+      for (const [o0, dd, lo, hi] of [[ox, dx, bx, bx + bw], [oy, dy, by, by + bh], [oz, dz, z0, z1]]) {
+        if (Math.abs(dd) < 1e-8) { if (o0 < lo || o0 > hi) return Infinity; continue; }
+        let t1 = (lo - o0) / dd, t2 = (hi - o0) / dd;
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return Infinity;
+      }
+      return tmin;
+    };
     if (world) {
-      const slab = (bx, by, bw, bh, h) => {
-        let tmin = 0, tmax = Infinity;
-        for (const [o0, dd, lo, hi] of [[ox, dx, bx, bx + bw], [oy, dy, by, by + bh], [oz, dz, 0, h]]) {
-          if (Math.abs(dd) < 1e-8) { if (o0 < lo || o0 > hi) return Infinity; continue; }
-          let t1 = (lo - o0) / dd, t2 = (hi - o0) / dd;
-          if (t1 > t2) [t1, t2] = [t2, t1];
-          tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
-          if (tmin > tmax) return Infinity;
-        }
-        return tmin;
-      };
       for (const b of world.buildings) {
-        if (slab(b.x, b.y, b.w, b.h, b.floors * FLOOR_H) >= best) continue;
+        if (slab(b.x, b.y, b.w, b.h, 0, b.floors * FLOOR_H) >= best) continue;
         for (const s of b.segs) {
           if (s.floorsAlive <= 0) continue;
-          const t = slab(s.x, s.y, s.w, s.h, s.height);
-          if (t < best) { best = t; }
+          const t = slab(s.x, s.y, s.w, s.h, 0, s.height);
+          if (t < best) { best = t; hit = s; }
         }
       }
     }
+    if (vehicles) {
+      for (const v of vehicles) {
+        if (!v.alive || v === skip) continue;
+        const r = Math.max(v.w, v.h) * 0.5;
+        const t = slab(v.cx - r, v.cy - r, 2 * r, 2 * r, v.liftZ || 0, (v.liftZ || 0) + 14);
+        if (t < best) { best = t; hit = v; }
+      }
+    }
+    return { t: best, hit };
+  }
+
+  /** Rayo desde pantalla → punto en el mundo (px) contra suelo, edificios y autos */
+  pick(ndcX, ndcY, world, vehicles = null, skip = null) {
+    const cam = this.camera;
+    const o = cam.position;
+    const d = _r.set(ndcX, ndcY, 0.5).unproject(cam).sub(o).normalize();
+    const ox = o.x / S, oy = o.z / S, oz = o.y / S;
+    const dx = d.x, dy = d.z, dz = d.y;
+    let { t: best, hit } = this.raycastPx(ox, oy, oz, dx, dy, dz, world, { vehicles, skip });
+    if (!Number.isFinite(best)) best = 1400 / Math.max(0.05, Math.hypot(dx, dy));
     const x = ox + dx * best, y = oy + dy * best;
-    hz = Math.max(0, oz + dz * best);
-    return { x, y, z: hz };
+    const hz = Math.max(0, oz + dz * best);
+    return { x, y, z: hz, hit };
   }
 
   worldToScreen(x, y, z) {
@@ -1106,6 +1345,7 @@ export class Renderer3D {
   }
 
   render() {
-    this.renderer.render(this.scene, this.camera);
+    if (this.bloomOn && this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 }

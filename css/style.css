@@ -780,3 +780,63 @@ body.iphone-mode .touch-force input[type=range] { height: 22px; flex: 1; }
 body.iphone-mode #touchPause:active { transform: translateX(-50%) scale(0.92); }
 body.iphone-mode .touch-btn:active, body.iphone-mode .touch-pow:active { filter: brightness(1.25); }
 .btn-secondary.danger-ov { border-color: #e1705588; color: #fab1a0; }
+
+/* ——— v3: cámara, vuelo, láser, mira central ——— */
+.crosshair {
+  position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  pointer-events: none; z-index: 4; display: none;
+}
+.crosshair::before, .crosshair::after {
+  content: ''; position: absolute; background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px #a29bfe;
+}
+.crosshair::before { left: 12px; top: 2px; width: 2px; height: 22px; }
+.crosshair::after { top: 12px; left: 2px; height: 2px; width: 22px; }
+body.cam-fps .crosshair, body.cam-third .crosshair { display: block; }
+body.cam-third .crosshair { opacity: 0.6; transform: scale(0.8); }
+body.lasering .crosshair::before, body.lasering .crosshair::after { background: #ff8a4a; box-shadow: 0 0 8px #ff5a1a; }
+#gameScreen #gameCanvas { cursor: crosshair; }
+body.cam-fps #gameCanvas, body.cam-third #gameCanvas { cursor: none; }
+
+.touch-btn.cam, .touch-btn.fly, .touch-btn.alt, .touch-btn.laser { display: none; }
+body.iphone-mode .touch-btn.cam { display: flex; }
+body.iphone-mode .touch-btn.fly { display: flex; }
+body.iphone-mode.flying .touch-btn.alt { display: flex; }
+body.iphone-mode:not(.flying) .touch-btn.alt { display: none !important; }
+body.iphone-mode .touch-btn.face.laser { display: flex; }
+
+/* 🎥 a la izquierda de la pausa */
+body.iphone-mode #touchCam {
+  left: calc(var(--sl) + 2px); top: calc(var(--st) + 46px); width: 42px; height: 42px; font-size: 1rem;
+  border-color: #ffd16699;
+}
+body.cam-fps.iphone-mode #touchCam, body.cam-third.iphone-mode #touchCam { background: rgba(255, 209, 102, 0.35); }
+
+/* 🚀 Volar + ▲▼ a la derecha del joystick */
+body.iphone-mode #touchFly { left: calc(var(--sl) + 126px); bottom: calc(var(--sb) + 128px); width: 52px; height: 52px; font-size: 1.05rem; border-color: #74b9ff99; }
+body.iphone-mode.flying #touchFly { background: rgba(116, 185, 255, 0.5); border-color: #74b9ff; box-shadow: 0 0 16px #74b9ffcc; }
+body.iphone-mode .touch-btn.alt { width: 50px; height: 50px; font-size: 1.1rem; left: calc(var(--sl) + 127px); border-color: #74b9ff88; }
+body.iphone-mode .touch-btn.alt.up { bottom: calc(var(--sb) + 66px); }
+body.iphone-mode .touch-btn.alt.down { bottom: calc(var(--sb) + 8px); }
+
+/* 👀 Láser: esquina superior izquierda del rombo */
+body.iphone-mode .touch-btn.face.laser {
+  left: 72px; top: 8px; width: 52px; height: 52px; font-size: 1.1rem;
+  border-color: #ff7a4a; background: rgba(214, 48, 49, 0.35);
+}
+body.iphone-mode .touch-btn.face.laser.pressed { background: rgba(255, 90, 26, 0.7); box-shadow: 0 0 18px #ff5a1a; }
+
+@media (orientation: portrait) {
+  /* vertical: fila encima de la cruceta */
+  body.iphone-mode #touchFly { left: calc(var(--sl) + 6px); bottom: calc(var(--sb) + 252px); width: 46px; height: 46px; }
+  body.iphone-mode .touch-btn.alt { bottom: calc(var(--sb) + 252px); width: 46px; height: 46px; }
+  body.iphone-mode .touch-btn.alt.up { left: calc(var(--sl) + 60px); bottom: calc(var(--sb) + 252px); }
+  body.iphone-mode .touch-btn.alt.down { left: calc(var(--sl) + 114px); bottom: calc(var(--sb) + 252px); }
+  body.iphone-mode #touchCam { top: calc(var(--st) + 108px); }
+}
+@media (orientation: landscape) and (max-height: 360px) {
+  body.iphone-mode #touchFly { left: calc(var(--sl) + 122px); bottom: calc(var(--sb) + 118px); width: 48px; height: 48px; }
+  body.iphone-mode .touch-btn.alt { left: calc(var(--sl) + 122px); width: 48px; height: 48px; }
+  body.iphone-mode .touch-btn.alt.up { bottom: calc(var(--sb) + 62px); }
+  body.iphone-mode .touch-btn.alt.down { bottom: calc(var(--sb) + 8px); }
+}

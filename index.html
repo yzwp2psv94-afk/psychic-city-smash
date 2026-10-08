@@ -13,7 +13,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
     }
   }
   </script>
@@ -68,7 +69,7 @@
 
         <button id="btnPlay" class="btn-play">▶ JUGAR</button>
         <button id="btnSettings" class="btn-gear" title="Ajustes">⚙️</button>
-        <p class="hint-menu" id="hintMenu">WASD mover · Mouse apuntar · Mantén clic = cargar · Rueda = fuerza · Q atrapar · F redirigir · E auto · Ctrl+rueda zoom</p>
+        <p class="hint-menu" id="hintMenu">WASD mover · Mouse apuntar · Mantén clic = cargar · Rueda = fuerza · Q atrapar · G redirigir · E auto · Ctrl+rueda zoom · V cámara · F volar (Espacio/C altura) · L o clic derecho = láser</p>
       </div>
     </div>
 
@@ -173,6 +174,7 @@
       </div>
 
       <!-- Controles táctiles iPhone 14 -->
+      <div id="crosshair" class="crosshair" aria-hidden="true"></div>
       <div id="touchHud" class="touch-hud hidden">
         <div id="lookZone" class="look-zone" aria-label="Mirar / apuntar"></div>
 
@@ -185,6 +187,14 @@
           <button type="button" id="touchZoomIn" class="touch-btn sh r1" aria-label="R1: acercar cámara"><b>R1</b><span>+</span></button>
           <button type="button" id="touchRotR" class="touch-btn sh r2" aria-label="R2: girar cámara a la derecha"><b>R2</b><span>↻</span></button>
         </div>
+
+        <!-- Cámara: 1.ª persona → 3.ª persona cerca → 3.ª persona lejana -->
+        <button type="button" id="touchCam" class="touch-btn cam" aria-label="Cambiar cámara (primera persona, tercera persona cerca, tercera persona lejana)">🎥</button>
+
+        <!-- Vuelo: activar + subir / bajar -->
+        <button type="button" id="touchFly" class="touch-btn fly" aria-label="Volar">🚀<small>Volar</small></button>
+        <button type="button" id="touchUp" class="touch-btn alt up" aria-label="Subir">▲</button>
+        <button type="button" id="touchDown" class="touch-btn alt down" aria-label="Bajar">▼</button>
 
         <!-- Pausa arriba al centro -->
         <button type="button" id="touchPause" class="touch-btn pause" aria-label="Pausa">⏸</button>
@@ -207,6 +217,7 @@
           <button type="button" id="touchCatch" class="touch-btn face left catch" aria-label="Atrapar / congelar">🧊<small>Atrapar</small></button>
           <button type="button" id="touchSlam" class="touch-btn face right slam" aria-label="Slam">💥<small>Slam</small></button>
           <button type="button" id="touchFire" class="touch-btn face bottom fire" aria-label="Poder: mantén para agarrar y cargar, arrastra para apuntar, suelta para lanzar">⚡<small>PODER</small></button>
+          <button type="button" id="touchLaser" class="touch-btn face laser" aria-label="Láser de los ojos: mantén para disparar">👀<small>Láser</small></button>
           <button type="button" id="touchEnter" class="touch-btn mini enter" aria-label="Entrar o salir del auto">🚗<small>Entrar</small></button>
           <button type="button" id="touchBrake" class="touch-btn mini brake" aria-label="Freno de mano">🛑<small>Freno</small></button>
           <button type="button" id="touchReset" class="touch-btn mini reset" aria-label="Enderezar auto / centrar cámara">⟲</button>
@@ -228,6 +239,7 @@
             <button id="btnResume" class="btn-play small">Continuar</button>
             <button id="btnRestart" class="btn-secondary">Nueva sesión</button>
             <button id="btnMenu" class="btn-secondary">Menú</button>
+            <button id="btnMuteOv" class="btn-secondary">🔊 Sonido: sí</button>
             <button id="btnEndOv" class="btn-secondary danger-ov">Fin sesión</button>
           </div>
         </div>
@@ -235,6 +247,7 @@
     </div>
   </div>
 
+  <script src="js/sfx.js"></script>
   <script type="module" src="js/game.js"></script>
 </body>
 </html>

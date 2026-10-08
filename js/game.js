@@ -10,9 +10,19 @@ import { spawnCivilians, spawnHostileWave, RivalPsychic } from './npcs.js';
 import { spawnCityTraffic, spawnParkedCars, resolveVehicleCollisions } from './vehicles.js';
 import { UI } from './ui.js';
 import { sfx } from './audio.js';
+
+// Sonido: js/sfx.js (script clásico, window.SFX). Redirige las llamadas sfx.* existentes
+// sin modificar audio.js; si SFX no cargó, quedan los bips originales.
+const SFX = window.SFX || null;
+if (SFX) for (const k of Object.keys(sfx)) if (typeof SFX[k] === 'function') sfx[k] = (...a) => SFX[k](...a);
 import { MobileControls, ZOOM_MIN, ZOOM_MAX } from './mobile.js';
 import { Renderer3D, QUALITY } from './renderer3d.js';
-import { setParticleBudget } from './physics.js';
+import { setParticleBudget, GRAVITY, addParticle } from './physics.js';
+import { FLOOR_H } from './world.js';
+
+const CAM_ORDER = ['fps', 'third', 'far'];
+const CAM_PITCH = { fps: 0.08, third: 0.3, far: 0.52 };
+const CAM_NAMES = { fps: 'Cámara 1.ª persona', third: 'Cámara 3.ª persona', far: 'Cámara lejana' };
 
 const ENTER_RADIUS = 42;      // px desde el borde del auto (≈4 m)
 const FORCE_PRESETS = [0.1, 0.35, 0.6, 1];
@@ -31,27 +41,52 @@ class Player {
     this.aimX = x; this.aimY = y;
     this.facing = -Math.PI / 2;
     this.walkPhase = 0;
+    // Altura (px) · vuelo · caída
+    this.z = 0; this.vz = 0; this.groundZ = 0;
+    this.flying = false; this.fallTop = 0;
+    this.maxAlt = 400;
   }
   get cx() { return this.x; }
   get cy() { return this.y; }
 
-  update(dt, mx, my, world) {
+  /** Devuelve { impact, height } al aterrizar tras una caída, si no null */
+  update(dt, mx, my, world, up = 0) {
     const l = Math.hypot(mx, my);
     if (l > 1) { mx /= l; my /= l; }
-    this.vx = mx * this.speed;
-    this.vy = my * this.speed;
+    const spd = this.flying ? this.speed * 1.9 : this.speed;
+    this.vx = mx * spd;
+    this.vy = my * spd;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
-    const box = { x: this.x - 5, y: this.y - 5, w: 10, h: 10, liftZ: 0 };
+    const box = { x: this.x - 5, y: this.y - 5, w: 10, h: 10, liftZ: this.z };
     if (world.resolveStructures(box)) { this.x = box.x + 5; this.y = box.y + 5; }
     this.x = Math.max(10, Math.min(world.w - 10, this.x));
     this.y = Math.max(10, Math.min(world.h - 10, this.y));
     if (l > 0.05) this.walkPhase += dt * 11 * Math.min(1, l);
+    // Altura: suelo = techo/columna bajo los pies
+    let ground = 0;
+    world.segmentsTouching({ x: this.x - 3, y: this.y - 3, w: 6, h: 6 }, s => { if (s.height <= this.z + 6) ground = Math.max(ground, s.height); });
+    this.groundZ = ground;
+    let landed = null;
+    if (this.flying) {
+      this.vz = up * 190;
+      this.z = Math.max(ground, Math.min(this.maxAlt, this.z + this.vz * dt));
+      this.fallTop = this.z;
+    } else if (this.z > ground + 0.5 || this.vz > 0) {
+      this.vz -= GRAVITY * 1.1 * dt;
+      this.z += this.vz * dt;
+      this.fallTop = Math.max(this.fallTop, this.z);
+      if (this.z <= ground) {
+        landed = { impact: -this.vz, height: this.fallTop - ground };
+        this.z = ground; this.vz = 0; this.fallTop = ground;
+      }
+    } else { this.z = ground; this.vz = 0; this.fallTop = ground; }
     const aimAng = Math.atan2(this.aimY - this.y, this.aimX - this.x);
     const target = l > 0.05 && !this.casting ? Math.atan2(my, mx) : aimAng;
     let d = target - this.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
     this.facing += d * Math.min(1, dt * 12);
-    this.energy = Math.min(this.maxEnergy, this.energy + 14 * dt);
+    this.energy = Math.min(this.maxEnergy, this.energy + (this.flying ? 9 : 14) * dt);
+    return landed;
   }
 }
 
@@ -80,6 +115,13 @@ class Game {
     this.currentTip = '';
     this.camYaw = 0;
     this.camDist = 36;
+    // Cámaras: 'fps' (1.ª persona) · 'third' (3.ª persona cerca) · 'far' (persecución lejana y alta)
+    this.camMode = 'far';
+    this.lookPitch = CAM_PITCH.far; // + = mirar hacia abajo
+    this.thirdDist = 7;        // m
+    this.farDist = 16;         // m
+    this.fpsFov = 70;          // grados
+    this.laser = { on: false, hit: null, decalT: 0, lx: 0, ly: 0, heat: new Map() };
     this.lookOffset = 0;
     this.force = 0.6;
     this.sessionTime = 0;
@@ -165,14 +207,17 @@ class Game {
       if (code) this.keys[code] = true;
       if (!this.running) return;
       if (k >= '1' && k <= '5' && !e.repeat) this.selectPower(+k - 1);
-      if (k === ' ' || k === 'escape') {
+      if (k === ' ') e.preventDefault();
+      if ((k === ' ' && !this.player?.flying) || k === 'escape' || k === 'p') {
         e.preventDefault();
         if (!e.repeat) this.togglePause();
       }
+      if (code === 'KeyV' && !e.repeat && !this.paused) this.cycleCamera();
       if (this.paused) return;
       if ((code === 'KeyE' || k === 'e') && !e.repeat) this.toggleEnterCar();
       if ((code === 'KeyQ' || k === 'q') && !e.repeat) this.powers.startCatch();
-      if ((code === 'KeyF' || k === 'f') && !e.repeat) this._redirectStart();
+      if ((code === 'KeyG' || k === 'g') && !e.repeat) this._redirectStart();
+      if ((code === 'KeyF' || k === 'f') && !e.repeat) this.toggleFly();
       if ((code === 'KeyR' || k === 'r') && !e.repeat) this._reset();
       if (k === ']' || k === '+' || k === '=') this.setForce(this.force + 0.05);
       if (k === '[' || k === '-') this.setForce(this.force - 0.05);
@@ -186,7 +231,7 @@ class Game {
       if (e.key === 'Shift') this.keys['shift'] = false;
       if (!this.running) return;
       if (e.code === 'KeyQ' || k === 'q') this.powers?.stopCatch();
-      if (e.code === 'KeyF' || k === 'f') this._redirectRelease();
+      if (e.code === 'KeyG' || k === 'g') this._redirectRelease();
     });
     window.addEventListener('blur', () => { this.keys = {}; this.powers?.stopCatch(); });
 
@@ -196,17 +241,26 @@ class Game {
       if (!this.running || this.paused) return;
       this._syncMouse(e);
       this.aimMode = 'mouse';
+      if (document.pointerLockElement !== cv && cv.requestPointerLock) {
+        try { const pr = cv.requestPointerLock(); pr?.catch?.(() => {}); } catch (err) { /* sin pointer lock */ }
+      }
       if (e.button === 0) { this.mouse.down = true; this._onPowerStart(); }
-      else if (e.button === 2) this.powers.startCatch();
+      else if (e.button === 2) this._mouseLaser = true;
       else if (e.button === 1) { e.preventDefault(); this.mouse.mid = true; this.mouse.lastX = e.clientX; }
     });
     window.addEventListener('mouseup', e => {
       if (!this.running) return;
       if (e.button === 0 && this.mouse.down) { this.mouse.down = false; this._onPowerRelease(); }
-      else if (e.button === 2) this.powers?.stopCatch();
+      else if (e.button === 2) this._mouseLaser = false;
       else if (e.button === 1) this.mouse.mid = false;
     });
     cv.addEventListener('mousemove', e => {
+      if (document.pointerLockElement === cv) {
+        this._mouseLook = (this._mouseLook || 0) + 1;
+        this._lookAccX = (this._lookAccX || 0) + e.movementX;
+        this._lookAccY = (this._lookAccY || 0) + e.movementY;
+        return;
+      }
       this._syncMouse(e);
       this.aimMode = 'mouse';
       if (this.mouse.mid) {
@@ -263,6 +317,21 @@ class Game {
     document.getElementById('btnEnd').onclick = () => this.endSession();
     const endOv = document.getElementById('btnEndOv');
     if (endOv) endOv.onclick = () => { this.paused = false; this.endSession(); };
+    // 🔊 silencio desde la pausa
+    const muteOv = document.getElementById('btnMuteOv');
+    const muteLabel = () => { if (muteOv) muteOv.textContent = SFX?.isMuted() ? '🔇 Sonido: no' : '🔊 Sonido: sí'; };
+    this._muteLabel = muteLabel;
+    if (SFX) { const opt = document.getElementById('optSound'); if (opt) opt.checked = !SFX.isMuted(); if (this.ui) this.ui.sound = !SFX.isMuted(); }
+    if (muteOv) {
+      if (!SFX) muteOv.style.display = 'none';
+      muteLabel();
+      muteOv.onclick = () => {
+        const m = SFX.toggleMute();
+        this.ui.sound = !m;
+        const opt = document.getElementById('optSound'); if (opt) opt.checked = !m;
+        muteLabel();
+      };
+    }
     document.getElementById('btnResume').onclick = () => { this.paused = false; this.ui.hideOverlay(); };
     document.getElementById('btnRestart').onclick = () => this.startSession(this.mode);
     document.getElementById('btnMenu').onclick = () => {
@@ -288,13 +357,124 @@ class Game {
   }
 
   /** Zoom de cámara: distancia limitada a [ZOOM_MIN, ZOOM_MAX] */
+  /** Zoom según la cámara: órbita = distancia · 3.ª persona = distancia corta · 1.ª persona = FOV */
+  getZoom() { return this.camMode === 'fps' ? this.fpsFov : this.camMode === 'third' ? this.thirdDist : this.farDist; }
+
   setZoom(d) {
-    if (!Number.isFinite(d)) return this.camDist;
-    this.camDist = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, d));
-    return this.camDist;
+    if (!Number.isFinite(d)) return this.getZoom();
+    if (this.camMode === 'fps') this.fpsFov = Math.max(35, Math.min(90, d));
+    else if (this.camMode === 'third') this.thirdDist = Math.max(3, Math.min(12, d));
+    else this.farDist = Math.max(8, Math.min(40, d));
+    return this.getZoom();
   }
 
-  zoomBy(delta) { return this.setZoom(this.camDist + delta); }
+  zoomBy(delta) { return this.setZoom(this.getZoom() + delta * (this.camMode === 'third' ? 0.35 : this.camMode === 'far' ? 0.6 : 1)); }
+
+  cycleCamera() {
+    this.camMode = CAM_ORDER[(CAM_ORDER.indexOf(this.camMode) + 1) % CAM_ORDER.length];
+    this.lookPitch = CAM_PITCH[this.camMode];
+    this._syncCamClasses();
+    this.setTip(`🎥 ${CAM_NAMES[this.camMode]}`);
+    sfx.ui();
+  }
+
+  _syncCamClasses() {
+    const b = document.body.classList;
+    b.toggle('cam-fps', this.camMode === 'fps');
+    b.toggle('cam-third', this.camMode !== 'fps');   // mira central visible
+    b.toggle('cam-far', this.camMode === 'far');
+  }
+
+  toggleFly() {
+    if (!this.running || this.paused || this.drivenCar) return;
+    const p = this.player;
+    p.flying = !p.flying;
+    if (p.flying) { p.vz = 0; this.setTip('🚀 Volando · ▲/▼ altura (Espacio / C)'); if (!SFX) sfx.shock?.(); }
+    else this.setTip('Aterrizando…');
+    document.body.classList.toggle('flying', p.flying);
+  }
+
+  /** Aterrizaje desde altura: onda de choque proporcional a la caída */
+  _landingShock(h) {
+    const p = this.player;
+    const pw = Math.min(1.6, (h - 25) / 180);
+    if (pw <= 0) return;
+    const w = this.world, r = 40 + 90 * pw;
+    this.score += w.applyRadialDamage(p.x, p.y, r, 8 + 40 * pw, 160 + 320 * pw, true);
+    for (const v of this.vehicles) {
+      if (!v.alive || v === this.drivenCar) continue;
+      const d = Math.hypot(v.cx - p.x, v.cy - p.y);
+      if (d > r || d < 1) continue;
+      const f = (1 - d / r) * 240 * pw, a = Math.atan2(v.cy - p.y, v.cx - p.x);
+      v.launch(v.vx + Math.cos(a) * f, v.vy + Math.sin(a) * f, f * 0.5, true);
+      this.score += v.applyDamage(20 * pw * (1 - d / r), w, p.x, p.y, true);
+    }
+    for (const n of this.npcs) {
+      const d = Math.hypot(n.cx - p.x, n.cy - p.y);
+      if (d < r && n.alive) { const a = Math.atan2(n.cy - p.y, n.cx - p.x); this.score += n.hitByBody({ speed: 160, mass: 1 + pw, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160 }, true); }
+    }
+    w.addFx({ type: 'ring', x: p.x, y: p.y, r: 6, maxR: r, life: 0.5, color: '#b39dff' });
+    w.addFx({ type: 'shockwave', x: p.x, y: p.y, z: p.z, r: 4, maxR: r * 0.8, life: 0.5, color: '#b39dff' });
+    dustCloud(w.particles, p.x, p.y, Math.round(6 + 10 * pw), { z: p.z + 2, spread: r * 0.4, speed: 80 + 120 * pw, size: 16 });
+    if (p.z < 2) w.addRoadCrack(p.x, p.y, 0.5 + pw * 0.8, pw > 0.7 ? 'crater' : 'crack');
+    this.addShake(4 + 8 * pw);
+    if (SFX) { SFX.land(); if (pw > 0.5) SFX.explosion(0.3 + pw); } else sfx.smash();
+    this.setTip(`¡Aterrizaje! ${Math.round(pw * 100)}%`);
+  }
+
+  /** Láser de los ojos: daño continuo en la mira */
+  _updateLaser(dt, hold) {
+    const L = this.laser, p = this.player, w = this.world;
+    const cost = 7 * dt;
+    L.on = !!hold && p.energy > cost;
+    if (!L.on) { L.hit = null; return; }
+    p.energy -= cost;
+    const a = this.aim;
+    L.hit = { x: a.x, y: a.y, z: a.z };
+    const dps = 45;
+    // Edificios: corta columnas (puede romper pisos y provocar colapso)
+    let hitSeg = false;
+    L.segT = (L.segT || 0) + dt;
+    if (L.segT >= 0.1) {
+      const step = L.segT; L.segT = 0;
+      w.segmentsInRadius(a.x, a.y, 11, s => {
+        if (s.height >= a.z - 4) { this.score += w.damageSegment(s, dps * step, true); hitSeg = true; }
+      });
+    }
+    // Autos: se calientan → arden → explotan
+    for (const v of this.vehicles) {
+      if (!v.alive || v === this.drivenCar) continue;
+      if (Math.hypot(v.cx - a.x, v.cy - a.y) > Math.max(v.w, v.h) * 0.6 + 6) continue;
+      const prev = L.heat.get(v) || 0, heat = prev + dt;
+      L.heat.set(v, heat);
+      if (Math.floor(heat / 0.35) !== Math.floor(prev / 0.35)) this.score += v.applyDamage(5, w, a.x, a.y, true);
+      if (heat > 0.7) v.onFire = Math.max(v.onFire || 0, 8);
+      if (heat > 2.2 && !v._laserBoom) {
+        v._laserBoom = true;
+        v.parts.engine.hp = 0;               // motor fundido → chatarra
+        this.score += v.applyDamage(120, w, a.x, a.y, true);
+        v.onFire = Math.max(v.onFire || 0, 14);
+        w.explosion(v.cx, v.cy, 6, 0.9, true);
+      }
+    }
+    for (const pr of w.props) if (!pr.destroyed && Math.hypot(pr.cx - a.x, pr.cy - a.y) < 12) this.score += w.damageProp(pr, 30 * dt, p.x, p.y);
+    for (const n of this.npcs) {
+      if (n.alive && Math.hypot(n.cx - a.x, n.cy - a.y) < 10 && Math.random() < dt * 3) {
+        const ang = Math.atan2(n.cy - p.y, n.cx - p.x);
+        this.score += n.hitByBody({ speed: 120, mass: 1, vx: Math.cos(ang) * 120, vy: Math.sin(ang) * 120 }, true);
+      }
+    }
+    if (this.rival?.alive && Math.hypot(this.rival.cx - a.x, this.rival.cy - a.y) < 14) this.rival.takeDamage(20 * dt);
+    // Chispas, humo, marcas de quemado
+    sparks(w.particles, a.x, a.y, a.z + 1, hitSeg ? 3 : 2, 160, Math.random() > 0.5 ? '#ffd36b' : '#ff7a2a');
+    if (Math.random() < 0.25) addParticle(w.particles, a.x, a.y, { z: a.z + 2, vx: 0, vy: 0, vz: 30, size: 6, grow: 10, life: 1.2, color: '#2a2622', type: 'smoke', alpha: 0.5 });
+    L.decalT -= dt;
+    if (a.z < 2 && L.decalT <= 0 && Math.hypot(a.x - L.lx, a.y - L.ly) > 5) {
+      w.addRoadCrack(a.x, a.y, 0.55 + Math.random() * 0.3, 'scorch');
+      L.decalT = 0.08; L.lx = a.x; L.ly = a.y;
+    }
+    this.addShake(1.4);
+  }
 
   cycleForcePreset() {
     const i = FORCE_PRESETS.findIndex(p => p > this.force + 0.01);
@@ -327,6 +507,10 @@ class Game {
     this._applyQuality();
     world.onExplosion = (x, y, r, p, credit) => this._explosionHits(x, y, r, p, credit);
     this.player = new Player(world.spawn.x, world.spawn.y);
+    this.player.maxAlt = 1.5 * Math.max(...world.buildings.map(b => b.floors)) * FLOOR_H;
+    document.body.classList.remove('flying');
+    this.laser.heat = new Map();
+    this._syncCamClasses();
     this.aim = { x: world.spawn.x, y: world.spawn.y - 120, z: 0 };
     this.aimOffset = { r: 0, f: 140 };
     this.powers = new PowersSystem();
@@ -353,10 +537,41 @@ class Game {
     this.ui.updateHud({ score: this.score, destroy: this.world?.destructionPercent() || 0, energy: this.player?.energy || 0, maxEnergy: 100, tip: t });
   }
 
+  /** Sonidos en loop (láser, vuelo, motor, derrape) según el estado de este frame */
+  _syncLoops(dt) {
+    if (!SFX) return;
+    const L = this._snd || (this._snd = { laser: false, fly: false, engine: false, skid: false });
+    const p = this.player, car = this.drivenCar;
+    if (this.laser.on !== L.laser) { L.laser = this.laser.on; L.laser ? SFX.laserStart() : SFX.laserStop(); }
+    const fly = !!p?.flying;
+    if (fly !== L.fly) { L.fly = fly; fly ? SFX.flyStart() : SFX.flyStop(); }
+    if (fly) SFX.setFlySpeed(Math.min(1, (Math.hypot(p.vx, p.vy) + Math.abs(p.vz) * 0.8) / 260));
+    const eng = !!car && car.alive && !car.isWreck;
+    if (eng !== L.engine) { L.engine = eng; eng ? SFX.engineStart() : SFX.engineStop(); }
+    let skid = 0;
+    if (eng) {
+      const max = car.maxSpeed || 300;
+      SFX.setEngine(Math.min(1, Math.abs(car.forwardSpeed) / max), Math.min(1, Math.abs(car.inputThrottle || 0)));
+      const lat = Math.abs(-car.vx * Math.sin(car.angle) + car.vy * Math.cos(car.angle));
+      skid = Math.min(1, Math.max(0, (lat - 40) / 160) + (car.inputHandbrake && car.speed > 60 ? 0.5 : 0));
+    }
+    const sk = skid > 0.08;
+    if (sk !== L.skid) { L.skid = sk; sk ? SFX.skidStart() : SFX.skidStop(); }
+    if (sk) SFX.setSkid(skid);
+  }
+
+  _stopLoops() {
+    if (!SFX) return;
+    SFX.laserStop(); SFX.flyStop(); SFX.engineStop(); SFX.skidStop();
+    this._snd = null;
+  }
+
   togglePause() {
     if (!this.running) return;
     this.paused = !this.paused;
     if (this.paused) {
+      this._stopLoops();
+      this._muteLabel?.();
       this.powers.stopCatch();
       this.ui.showOverlay('Pausa', 'El mundo está congelado. La destrucción persiste.', this._statsHtml(), { showResume: true });
     } else {
@@ -367,6 +582,7 @@ class Game {
   endSession() {
     if (!this.running) return;
     this.paused = true;
+    this._stopLoops();
     this.ui.showOverlay('Fin de sesión', 'Nueva sesión = mapa reparado. Dentro de la sesión nada se repara solo.', this._statsHtml(), { showResume: false });
   }
 
@@ -433,8 +649,11 @@ class Game {
       sfx.ui();
       return;
     }
+    if (this.player.z > this.player.groundZ + 12) { this.setTip('Baja a la calle para entrar a un auto'); return; }
     const { car, wreck } = this._findNearCar();
     if (car) {
+      this.player.flying = false; this.player.z = 0; this.player.vz = 0; this.player.fallTop = 0;
+      document.body.classList.remove('flying');
       if (car.flipped) { car.flipped = false; car.roll = 0; }
       this.drivenCar = car;
       car.driven = true;
@@ -462,8 +681,7 @@ class Game {
       v.vx = v.vy = 0; v.yawRate = 0; v.liftZ = Math.max(v.liftZ, 4); v.vz = 60;
       this.setTip('Auto restablecido');
     } else {
-      this.camYaw = 0;
-      this.camDist = this.mobile?.iphoneMode ? 44 : 36;
+      this.lookPitch = CAM_PITCH[this.camMode]; this.thirdDist = 7; this.farDist = 16; this.fpsFov = 70;
       this.setTip('Cámara restablecida');
     }
   }
@@ -473,7 +691,7 @@ class Game {
     return {
       world: this.world, vehicles: this.vehicles, npcs: this.npcs, rival: this.rival,
       aimX: this.aim.x, aimY: this.aim.y, aimZ: this.aim.z,
-      player: this.player, drivenCar: this.drivenCar,
+      player: this.player, drivenCar: this.drivenCar, camMode: this.camMode,
       energy: this.player.energy, driving: !!this.drivenCar,
     };
   }
@@ -581,6 +799,24 @@ class Game {
   }
 
   _updateAim(dt, mob) {
+    {
+      // Mirar: arrastre táctil, arrastre sobre ⚡, stick derecho, mouse con pointer lock, L2/R2
+      const lx = (mob.lookDX || 0) + (mob.aimDragX || 0) + (this._lookAccX || 0) * 0.55 + (mob.aimStickX || 0) * 420 * dt;
+      const ly = (mob.lookDY || 0) + (mob.aimDragY || 0) + (this._lookAccY || 0) * 0.55 + (mob.aimStickY || 0) * 300 * dt;
+      this._lookAccX = 0; this._lookAccY = 0;
+      if (this.drivenCar) this.lookOffset += lx * 0.0055;
+      else this.camYaw -= lx * 0.0055;
+      if (mob.rotate) { if (this.drivenCar) this.lookOffset -= mob.rotate * 1.8 * dt; else this.camYaw += mob.rotate * 1.8 * dt; }
+      this.lookPitch = Math.max(-1.2, Math.min(1.35, this.lookPitch + ly * 0.0045));
+      // La mira = centro de la pantalla (rayo desde la cámara)
+      const p = this.r3d.pick(0, 0, this.world, this.vehicles, this.drivenCar);
+      this.aim.x = Math.max(-100, Math.min(this.world.w + 100, p.x));
+      this.aim.y = Math.max(-100, Math.min(this.world.h + 100, p.y));
+      this.aim.z = p.z;
+      this.aimMode = 'center';
+      this.player.aimX = this.aim.x; this.player.aimY = this.aim.y;
+      return;
+    }
     // Stick derecho / arrastre táctil → modo offset
     if (mob.aimStickX || mob.aimStickY) {
       this.aimMode = 'offset';
@@ -673,6 +909,8 @@ class Game {
     if (mob.enter) this.toggleEnterCar();
     if (mob.pause) { this.togglePause(); return; }
     if (mob.reset) this._reset();
+    if (mob.camCycle) this.cycleCamera();
+    if (mob.flyToggle) this.toggleFly();
     this.powers.chargeRate = mob.rt > 0.05 ? 0.3 + 0.7 * Math.min(1, mob.rt) : 1;
 
     if ((mob.fireStart || mob.fireHold) && !this._mobileFireHeld) {
@@ -716,11 +954,23 @@ class Game {
       const { fx, fy } = this._camBasis();
       const mx = -fy * ix + fx * -iy;
       const my = fx * ix + fy * -iy;
-      player.casting = !!(this.powers.grabbed || this.powers.charging || this.powers.catching);
-      player.update(dt, mx, my, world);
+      player.casting = !!(this.powers.grabbed || this.powers.charging || this.powers.catching || this.laser.on);
+      const up = ((k[' '] || mob.flyUp) ? 1 : 0) - ((k['c'] || k['shift'] || mob.flyDown) ? 1 : 0);
+      const landed = player.update(dt, mx, my, world, up);
+      if (landed && landed.height > 25) this._landingShock(landed.height);
+      if (player.flying || player.z > player.groundZ + 2) {
+        // estela de energía
+        if (Math.random() < 0.7) addParticle(world.particles, player.x + (Math.random() - 0.5) * 4, player.y + (Math.random() - 0.5) * 4, {
+          z: player.z + 4 + Math.random() * 6, vx: -player.vx * 0.15, vy: -player.vy * 0.15, vz: -10,
+          size: 3 + Math.random() * 3, life: 0.6, color: Math.random() > 0.5 ? '#b39dff' : '#74b9ff', type: 'psy',
+        });
+      }
     }
 
     this._updateAim(dt, mob);
+    this._updateLaser(dt, mob.laser || this.keys['l'] || this._mouseLaser);
+    if (this._lzClass !== this.laser.on) { this._lzClass = this.laser.on; document.body.classList.toggle('lasering', this.laser.on); }
+    this._syncLoops(dt);
 
     // Poderes
     const energyRef = { value: player.energy };
@@ -902,8 +1152,9 @@ class Game {
   render(dt) {
     const r3d = this.r3d;
     const camState = this.drivenCar
-      ? { mode: 'drive', car: this.drivenCar, lookOffset: this.lookOffset, shake: this.shakeAmt, zoom: this.camDist / (this.mobile?.iphoneMode ? 44 : 36) }
-      : { mode: 'foot', x: this.player.x, y: this.player.y, yaw: this.camYaw, pitch: 0.98, dist: this.camDist, shake: this.shakeAmt };
+      ? { mode: 'drive', view: this.camMode, car: this.drivenCar, lookOffset: this.lookOffset, lookPitch: this.lookPitch, fpsFov: this.fpsFov, shake: this.shakeAmt, zoom: this.camMode === 'third' ? 0.7 * this.thirdDist / 7 : 1.1 * this.farDist / 16 }
+      : { mode: 'foot', view: this.camMode, x: this.player.x, y: this.player.y, z: this.player.z, yaw: this.camYaw, pitch: 0.98, lookPitch: this.lookPitch,
+          dist: this.camDist, tDist: this.camMode === 'far' ? this.farDist : this.thirdDist, fpsFov: this.fpsFov, shake: this.shakeAmt };
     r3d.updateCamera(camState, dt);
     r3d.sync(this, dt);
     r3d.render();

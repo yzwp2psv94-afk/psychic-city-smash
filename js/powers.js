@@ -341,7 +341,8 @@ export class PowersSystem {
         const size = Math.max(g.w, g.h);
         const hd = Math.min(d, 34 + size * 0.8);
         const tx = o.x + dx / d * hd, ty = o.y + dy / d * hd;
-        const tz = 22 + (g.th || 10) * 0.5 + this.charge * 14 + Math.sin(performance.now() * 0.004) * 2 + (ctx.drivenCar ? 18 : 0);
+        const base = ctx.drivenCar ? 40 : (ctx.camMode === 'fps' ? 9 : 22) + (ctx.player?.z || 0);
+        const tz = base + (g.th || 10) * 0.5 + this.charge * 14 + Math.sin(performance.now() * 0.004) * 2;
         this.hold.x = tx; this.hold.y = ty; this.hold.z = tz;
         const k = Math.min(1, 9 * dt / heavy);
         g.x += (tx - g.w / 2 - g.x) * k;

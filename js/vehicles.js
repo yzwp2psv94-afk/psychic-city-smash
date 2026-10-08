@@ -290,7 +290,8 @@ export class Vehicle {
         this.cx + Math.cos(towardAngle) * this.w * 0.4,
         this.cy + Math.sin(towardAngle) * this.h * 0.6,
         this.liftZ + 8, 6 + Math.floor(intensity * 14), 200);
-      sfx.hit();
+      if (window.SFX && intensity > 0.55 && (this.driven || opts.credit)) window.SFX.crash(Math.min(3, intensity * 2.2));
+      else sfx.hit();
     }
     if (this.parts.engine.hp < this.parts.engine.max * 0.55) {
       this.smokeTimer = Math.max(this.smokeTimer, 2.5);
@@ -338,7 +339,7 @@ export class Vehicle {
       playerTouch: credit ? 3 : 0,
     }));
     burst(world.particles, this.cx, this.cy, 6, color, { z: this.liftZ + 8 });
-    sfx.smash();
+    if (window.SFX) window.SFX.partFall(); else sfx.smash();
   }
 
   _becomeWreck(world, credit, intensity = 0.5) {

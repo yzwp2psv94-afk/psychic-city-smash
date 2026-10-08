@@ -332,6 +332,27 @@ export class MobileControls {
     press(document.getElementById('touchRotL'), () => { this._rotDir = 1; }, () => { this._rotDir = 0; });
     press(document.getElementById('touchRotR'), () => { this._rotDir = -1; }, () => { this._rotDir = 0; });
 
+    // v3: cámara, vuelo, altura y láser
+    press(document.getElementById('touchCam'), () => { this._camCycle = true; });
+    press(document.getElementById('touchFly'), () => { this._flyToggle = true; });
+    press(document.getElementById('touchUp'), () => { this._flyUp = true; }, () => { this._flyUp = false; });
+    press(document.getElementById('touchDown'), () => { this._flyDown = true; }, () => { this._flyDown = false; });
+    const laserBtn = document.getElementById('touchLaser');
+    press(laserBtn, () => { this._laser = true; }, () => { this._laser = false; });
+    if (laserBtn) {
+      // arrastrar sobre 👀 = apuntar mientras disparas
+      let lastL = null;
+      laserBtn.addEventListener('touchstart', (e) => { const t = e.changedTouches[0]; lastL = { x: t.clientX, y: t.clientY, id: t.identifier }; }, { passive: true });
+      laserBtn.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (!lastL || t.identifier !== lastL.id) continue;
+          this.aimDragX += t.clientX - lastL.x; this.aimDragY += t.clientY - lastL.y;
+          lastL.x = t.clientX; lastL.y = t.clientY;
+        }
+      }, { passive: false });
+    }
+
     press(this._els.btnCatch, () => { this._catchHold = true; }, () => { this._catchHold = false; });
     press(this._els.btnRedirect, () => { this._redirectHold = true; }, () => { this._redirectHold = false; });
     press(this._els.btnReset, () => { this._resetPressed = true; });
@@ -497,11 +518,17 @@ export class MobileControls {
       if (this._canvasTouches.size >= 2) {
         if (this._press) endPress(true);
         const pi = pinchInfo();
-        this._pinch = { d0: pi.d, dist0: game?.camDist ?? 36, mx: pi.mx, my: pi.my };
+        this._look1 = null;
+        this._pinch = { d0: pi.d, dist0: game?.getZoom?.() ?? game?.camDist ?? 36, mx: pi.mx, my: pi.my };
         return;
       }
       if (!game?.running || game.paused) return;
       const t = e.changedTouches[0];
+      if (game.camMode && game.camMode !== 'top') {
+        // 1.ª / 3.ª persona: arrastrar en la pantalla = mirar alrededor
+        this._look1 = { id: t.identifier, x: t.clientX, y: t.clientY };
+        return;
+      }
       game._syncMouse?.(t);
       game.aimMode = 'mouse';
       this._press = { id: t.identifier, x: t.clientX, y: t.clientY, started: false };
@@ -513,6 +540,10 @@ export class MobileControls {
       const game = g();
       for (const t of e.changedTouches) {
         if (this._canvasTouches.has(t.identifier)) this._canvasTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+        if (this._look1 && t.identifier === this._look1.id && !this._pinch) {
+          this.lookDX += t.clientX - this._look1.x; this.lookDY += t.clientY - this._look1.y;
+          this._look1.x = t.clientX; this._look1.y = t.clientY;
+        }
         if (this._press && t.identifier === this._press.id) {
           this._press.x = t.clientX; this._press.y = t.clientY;
           game?._syncMouse?.(t);
@@ -524,7 +555,7 @@ export class MobileControls {
         game.setZoom?.(this._pinch.dist0 * (this._pinch.d0 / pi.d));
         const dx = pi.mx - this._pinch.mx;
         this._pinch.mx = pi.mx; this._pinch.my = pi.my;
-        this.lookDX += dx; // arrastre con 2 dedos = girar cámara
+        if (!game.camMode || game.camMode === 'top') this.lookDX += dx; // arrastre con 2 dedos = girar cámara
       }
     }, { passive: false });
 
@@ -532,6 +563,7 @@ export class MobileControls {
       e.preventDefault();
       for (const t of e.changedTouches) {
         this._canvasTouches.delete(t.identifier);
+        if (this._look1 && t.identifier === this._look1.id) this._look1 = null;
         if (this._press && t.identifier === this._press.id) endPress(e.type === 'touchcancel');
       }
       if (this._canvasTouches.size < 2) this._pinch = null;
@@ -633,6 +665,9 @@ export class MobileControls {
     out.catchHold = this._catchHold;
     out.redirectHold = this._redirectHold;
     if (this._resetPressed) { out.reset = true; this._resetPressed = false; }
+    if (this._camCycle) { out.camCycle = true; this._camCycle = false; }
+    if (this._flyToggle) { out.flyToggle = true; this._flyToggle = false; }
+    out.flyUp = !!this._flyUp; out.flyDown = !!this._flyDown; out.laser = !!this._laser;
 
     out.fireHold = !!this._powerFire;
 

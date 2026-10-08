@@ -366,7 +366,7 @@ export class World {
     if (b.collapsing || b.collapsed) return;
     b.collapsing = { t: 0.35, credit, step: 0 };
     this.shake += 6;
-    sfx.smash();
+    if (window.SFX) window.SFX.collapse(); else sfx.smash();
     // Crujido inicial: polvo que brota de la base
     for (let k = 0; k < 6; k++) {
       const s = b.segs[Math.floor(Math.random() * b.segs.length)];
@@ -509,7 +509,7 @@ export class World {
     this.haze = Math.min(1, this.haze + 0.12 * power);
     this.addRoadCrack(x, y, 0.8 + power * 0.6, 'crater');
     this.fires.push({ x, y, z: 4, life: 2 + power * 2 });
-    sfx.explode?.();
+    if (window.SFX) window.SFX.explosion(Math.max(0.2, Math.min(3, 0.5 + power * 0.8))); else sfx.explode?.();
     const r = 50 + 40 * power;
     let dmg = this.applyRadialDamage(x, y, r, 18 * power, 260 * power, credit);
     if (this.onExplosion) dmg += this.onExplosion(x, y, r, power, credit) || 0;
