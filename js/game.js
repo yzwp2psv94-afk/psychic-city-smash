@@ -24,6 +24,57 @@ const CAM_ORDER = ['fps', 'third', 'far'];
 const CAM_PITCH = { fps: 0.08, third: 0.3, far: 0.52 };
 const CAM_NAMES = { fps: 'Cámara 1.ª persona', third: 'Cámara 3.ª persona', far: 'Cámara lejana' };
 
+// ——— paso fijo + interpolación (v4.1) ———
+const FIXED_DT = 1 / 60;
+const MAX_STEPS = 3;
+const IP_PLAYER = ['x', 'y', 'z', 'facing'], IP_PLAYER_A = [0, 0, 0, 1];
+const IP_VEH = ['x', 'y', 'liftZ', 'angle', 'roll', 'pitch'], IP_VEH_A = [0, 0, 0, 1, 1, 1];
+const IP_NPC = ['x', 'y', 'liftZ', 'facing'], IP_NPC_A = [0, 0, 0, 1];
+const IP_BODY = ['x', 'y', 'liftZ', 'angle'], IP_BODY_A = [0, 0, 0, 1];
+const angDiff = (a, b) => { let d = a - b; if (d > Math.PI || d < -Math.PI) d = Math.atan2(Math.sin(d), Math.cos(d)); return d; };
+function ipSave(o, F, id) {
+  let p = o._ipP;
+  if (!p) p = o._ipP = new Float64Array(6);
+  for (let i = 0; i < F.length; i++) { const v = o[F[i]]; p[i] = typeof v === 'number' ? v : NaN; }
+  o._ipId = id;
+}
+function ipApply(o, F, A, id, a) {
+  o._ipOn = false;
+  if (o._ipId !== id) return;          // objeto creado en este paso: sin estado previo
+  const p = o._ipP;
+  if (Math.abs(o[F[0]] - p[0]) > 80 || Math.abs(o[F[1]] - p[1]) > 80) return;   // teletransporte
+  let r = o._ipR;
+  if (!r) r = o._ipR = new Float64Array(6);
+  for (let i = 0; i < F.length; i++) {
+    const c = o[F[i]];
+    r[i] = c;
+    if (typeof c !== 'number' || p[i] !== p[i]) continue;
+    o[F[i]] = A[i] ? p[i] + angDiff(c, p[i]) * a : p[i] + (c - p[i]) * a;
+  }
+  o._ipOn = true;
+}
+function ipRestore(o, F) {
+  if (!o._ipOn) return;
+  o._ipOn = false;
+  const r = o._ipR;
+  for (let i = 0; i < F.length; i++) if (typeof r[i] === 'number' && r[i] === r[i]) o[F[i]] = r[i];
+}
+
+// ——— ajustes persistentes (v4.1) ———
+const SETTINGS_KEY = 'pcs.settings.v1';
+function loadSettings() {
+  const d = { lookSens: 1, aimAssist: true, analogPedals: true };
+  try {
+    const j = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (typeof j.lookSens === 'number' && j.lookSens >= 0.3 && j.lookSens <= 2.5) d.lookSens = j.lookSens;
+    if (typeof j.aimAssist === 'boolean') d.aimAssist = j.aimAssist;
+    if (typeof j.analogPedals === 'boolean') d.analogPedals = j.analogPedals;
+  } catch (e) { /* modo privado */ }
+  return d;
+}
+function saveSettings(st) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(st)); } catch (e) { /* sin almacenamiento */ } }
+
+const S = 0.1;   // m/px (como renderer3d)
 const ENTER_RADIUS = 42;      // px desde el borde del auto (≈4 m)
 const FORCE_PRESETS = [0.1, 0.35, 0.6, 1];
 
@@ -45,6 +96,11 @@ class Player {
     this.z = 0; this.vz = 0; this.groundZ = 0;
     this.flying = false; this.fallTop = 0;
     this.maxAlt = 400;
+    // objetos reutilizados (sin basura por frame)
+    this._box = { x: 0, y: 0, w: 10, h: 10, liftZ: 0 };
+    this._fbox = { x: 0, y: 0, w: 6, h: 6 };
+    this._gz = 0; this._g = 0;
+    this._segCb = sg => { if (sg.height <= this._gz + 6 && sg.height > this._g) this._g = sg.height; };
   }
   get cx() { return this.x; }
   get cy() { return this.y; }
@@ -54,18 +110,33 @@ class Player {
     const l = Math.hypot(mx, my);
     if (l > 1) { mx /= l; my /= l; }
     const spd = this.flying ? this.speed * 1.9 : this.speed;
-    this.vx = mx * spd;
-    this.vy = my * spd;
+    // v4.1: aceleración / frenado suaves (aproximación exponencial)
+    const rate = l > 0.05 ? (this.flying ? 6 : 13) : (this.flying ? 4 : 10);
+    const k = 1 - Math.exp(-dt * rate);
+    this.vx += (mx * spd - this.vx) * k;
+    this.vy += (my * spd - this.vy) * k;
+    if (l <= 0.05 && Math.abs(this.vx) + Math.abs(this.vy) < 2) { this.vx = 0; this.vy = 0; }
     this.x += this.vx * dt;
     this.y += this.vy * dt;
-    const box = { x: this.x - 5, y: this.y - 5, w: 10, h: 10, liftZ: this.z };
-    if (world.resolveStructures(box)) { this.x = box.x + 5; this.y = box.y + 5; }
+    const box = this._box;
+    box.x = this.x - 5; box.y = this.y - 5; box.liftZ = this.z;
+    if (world.resolveStructures(box)) {
+      const nx = box.x + 5, ny = box.y + 5;
+      if (Math.abs(nx - this.x) > 0.01) this.vx *= 0.2;   // no acumular velocidad contra la pared
+      if (Math.abs(ny - this.y) > 0.01) this.vy *= 0.2;
+      this.x = nx; this.y = ny;
+    }
     this.x = Math.max(10, Math.min(world.w - 10, this.x));
     this.y = Math.max(10, Math.min(world.h - 10, this.y));
-    if (l > 0.05) this.walkPhase += dt * 11 * Math.min(1, l);
-    // Altura: suelo = techo/columna bajo los pies
-    let ground = 0;
-    world.segmentsTouching({ x: this.x - 3, y: this.y - 3, w: 6, h: 6 }, s => { if (s.height <= this.z + 6) ground = Math.max(ground, s.height); });
+    const sr = Math.hypot(this.vx, this.vy) / this.speed;
+    if (sr > 0.04) this.walkPhase += dt * 11 * Math.min(1.3, sr);
+    // Altura: suelo = techo/columna bajo los pies (+ cráter)
+    const fb = this._fbox;
+    fb.x = this.x - 3; fb.y = this.y - 3;
+    this._gz = this.z; this._g = 0;
+    world.segmentsTouching(fb, this._segCb);
+    let ground = this._g;
+    if (ground <= 0 && world.groundAt) ground = world.groundAt(this.x, this.y);
     this.groundZ = ground;
     let landed = null;
     if (this.flying) {
@@ -80,11 +151,19 @@ class Player {
         landed = { impact: -this.vz, height: this.fallTop - ground };
         this.z = ground; this.vz = 0; this.fallTop = ground;
       }
+    } else if (ground < 0 && this.z > ground) {
+      // borde de cráter: bajar suave siguiendo la pendiente
+      this.z = Math.max(ground, this.z - 120 * dt); this.vz = 0; this.fallTop = this.z;
     } else { this.z = ground; this.vz = 0; this.fallTop = ground; }
     const aimAng = Math.atan2(this.aimY - this.y, this.aimX - this.x);
-    const target = l > 0.05 && !this.casting ? Math.atan2(my, mx) : aimAng;
+    const moving = l > 0.05 && sr > 0.08;
+    const target = moving && !this.casting ? Math.atan2(this.vy, this.vx) : aimAng;
     let d = target - this.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
-    this.facing += d * Math.min(1, dt * 12);
+    // giro suave con velocidad angular máxima (sin chasquidos de 180°)
+    let step = d * Math.min(1, dt * 11);
+    const maxStep = 9 * dt;
+    if (step > maxStep) step = maxStep; else if (step < -maxStep) step = -maxStep;
+    this.facing += step;
     this.energy = Math.min(this.maxEnergy, this.energy + (this.flying ? 9 : 14) * dt);
     return landed;
   }
@@ -96,6 +175,7 @@ class Game {
     this.hud2d = document.getElementById('hud2d');
     this.hudCtx = this.hud2d.getContext('2d');
     this.ui = new UI();
+    this.settings = loadSettings();
     this.mobile = new MobileControls(this);
     this.keys = {};
     this.mouse = { sx: 0, sy: 0, inside: false, down: false, mid: false, lastX: 0 };
@@ -112,6 +192,9 @@ class Game {
     this.waveTimer = 0;
     this.drivenCar = null;
     this.tipTimer = 0;
+    this._ipId = 0; this._alpha = 1; this._acc = 0;
+    this._ipCam = new Float64Array(3); this._ipCamR = new Float64Array(3);
+    this._loopCb = tt => this._loop(tt);
     this.currentTip = '';
     this.camYaw = 0;
     this.camDist = 36;
@@ -159,7 +242,8 @@ class Game {
 
   _resize() {
     const sz = this.mobile ? this.mobile.getCanvasSize() : { w: window.innerWidth, h: window.innerHeight };
-    const maxDpr = { high: 1.75, medium: 1.5, low: 1.1 }[this.quality] || 1.5;
+    let maxDpr = { high: 1.75, medium: 1.5, low: 1.1 }[this.quality] || 1.5;
+    if (this.mobile?.isTouch) maxDpr = Math.min(maxDpr, 1.5);   // v4.1: teléfonos ≤ 1,5× (fluidez > nitidez)
     const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
     this.r3d?.setSize(sz.w, sz.h, dpr);
     this._applyQuality();
@@ -312,7 +396,22 @@ class Game {
     this.aimMode = 'offset';
   }
 
+  _bindSettings() {
+    const st = this.settings;
+    const sens = document.getElementById('optLookSens'), sv = document.getElementById('sensVal');
+    const aa = document.getElementById('optAimAssist'), ap = document.getElementById('optAnalogPedals');
+    if (sens) {
+      sens.value = String(st.lookSens);
+      const lab = () => { if (sv) sv.textContent = st.lookSens.toFixed(1) + '×'; };
+      lab();
+      sens.addEventListener('input', () => { st.lookSens = Math.max(0.3, Math.min(2.5, parseFloat(sens.value) || 1)); lab(); saveSettings(st); });
+    }
+    if (aa) { aa.checked = st.aimAssist; aa.addEventListener('change', () => { st.aimAssist = aa.checked; saveSettings(st); }); }
+    if (ap) { ap.checked = st.analogPedals; ap.addEventListener('change', () => { st.analogPedals = ap.checked; saveSettings(st); }); }
+  }
+
   _bindButtons() {
+    this._bindSettings();
     document.getElementById('btnPlay').onclick = () => { sfx.ui(); this.startSession(this.ui.mode); };
     document.getElementById('btnPause').onclick = () => this.togglePause();
     document.getElementById('btnEnd').onclick = () => this.endSession();
@@ -696,12 +795,12 @@ class Game {
 
   // ——————————————————— poderes ———————————————————
   _powerCtx() {
-    return {
-      world: this.world, vehicles: this.vehicles, npcs: this.npcs, rival: this.rival,
-      aimX: this.aim.x, aimY: this.aim.y, aimZ: this.aim.z,
-      player: this.player, drivenCar: this.drivenCar, camMode: this.camMode,
-      energy: this.player.energy, driving: !!this.drivenCar,
-    };
+    const c = this._pctx || (this._pctx = {});
+    c.world = this.world; c.vehicles = this.vehicles; c.npcs = this.npcs; c.rival = this.rival;
+    c.aimX = this.aim.x; c.aimY = this.aim.y; c.aimZ = this.aim.z;
+    c.player = this.player; c.drivenCar = this.drivenCar; c.camMode = this.camMode;
+    c.energy = this.player.energy; c.driving = !!this.drivenCar;
+    return c;
   }
 
   _applyResult(res) {
@@ -773,25 +872,78 @@ class Game {
   }
 
   // ——————————————————— bucle ———————————————————
+  // v4.1: física a paso fijo (1/60 s) + interpolación al dibujar → movimiento fluido a cualquier fps
   _loop(t) {
     const now = t || performance.now();
     const raw = (now - (this._last || now)) / 1000;
-    const dt = Math.min(0.05, raw);
+    const dt = Math.min(0.1, Math.max(0, raw));
     this._last = now;
     if (this.running && raw < 1) this._watchFps(raw);
     if (this.running && this.paused) {
       const mob = this.mobile.poll(dt);
       if (mob.pause) this.togglePause();
+      this._acc = 0; this._alpha = 1;
     } else if (this.running) {
-      this.update(dt);
+      this._acc = (this._acc || 0) + dt;
+      let n = 0;
+      this._inLoop = true;
+      while (this._acc >= FIXED_DT && n < MAX_STEPS) {
+        this._ipSnap();
+        this.update(FIXED_DT);
+        this._acc -= FIXED_DT; n++;
+        if (!this.running || this.paused) { this._acc = 0; break; }
+      }
+      this._inLoop = false;
+      if (this._acc > FIXED_DT) this._acc = FIXED_DT * 0.999;   // descartar atraso (sin espiral)
+      this._alpha = n > 0 || this._ipId ? this._acc / FIXED_DT : 1;
     }
-    if (this.running) this.render(dt);
-    requestAnimationFrame(tt => this._loop(tt));
+    if (this.running) {
+      const ip = this._alpha < 0.995 && this._ipId > 0;
+      if (ip) this._ipApply(this._alpha);
+      this.render(dt);
+      if (ip) this._ipRestore();
+    }
+    requestAnimationFrame(this._loopCb);
+  }
+
+  _ipSnap() {
+    const id = ++this._ipId;
+    ipSave(this.player, IP_PLAYER, id);
+    const v = this.vehicles; for (let i = 0; i < v.length; i++) ipSave(v[i], IP_VEH, id);
+    const n = this.npcs; for (let i = 0; i < n.length; i++) ipSave(n[i], IP_NPC, id);
+    if (this.rival) ipSave(this.rival, IP_NPC, id);
+    const d = this.world.debris; for (let i = 0; i < d.length; i++) ipSave(d[i], IP_BODY, id);
+    const c = this._ipCam; c[0] = this.camYaw; c[1] = this.lookPitch; c[2] = this.lookOffset;
+  }
+
+  _ipApply(a) {
+    const id = this._ipId;
+    ipApply(this.player, IP_PLAYER, IP_PLAYER_A, id, a);
+    const v = this.vehicles; for (let i = 0; i < v.length; i++) ipApply(v[i], IP_VEH, IP_VEH_A, id, a);
+    const n = this.npcs; for (let i = 0; i < n.length; i++) ipApply(n[i], IP_NPC, IP_NPC_A, id, a);
+    if (this.rival) ipApply(this.rival, IP_NPC, IP_NPC_A, id, a);
+    const d = this.world.debris; for (let i = 0; i < d.length; i++) ipApply(d[i], IP_BODY, IP_BODY_A, id, a);
+    const c = this._ipCam, r = this._ipCamR;
+    r[0] = this.camYaw; r[1] = this.lookPitch; r[2] = this.lookOffset;
+    this.camYaw = c[0] + angDiff(this.camYaw, c[0]) * a;
+    this.lookPitch = c[1] + (this.lookPitch - c[1]) * a;
+    this.lookOffset = c[2] + (this.lookOffset - c[2]) * a;
+  }
+
+  _ipRestore() {
+    ipRestore(this.player, IP_PLAYER);
+    const v = this.vehicles; for (let i = 0; i < v.length; i++) ipRestore(v[i], IP_VEH);
+    const n = this.npcs; for (let i = 0; i < n.length; i++) ipRestore(n[i], IP_NPC);
+    if (this.rival) ipRestore(this.rival, IP_NPC);
+    const d = this.world.debris; for (let i = 0; i < d.length; i++) ipRestore(d[i], IP_BODY);
+    const r = this._ipCamR;
+    this.camYaw = r[0]; this.lookPitch = r[1]; this.lookOffset = r[2];
   }
 
   _camBasis() {
     const cam = this.r3d.camera;
-    const fx0 = this.r3d.camTarget.x - cam.position.x, fz0 = this.r3d.camTarget.z - cam.position.z;
+    const ct = this.r3d._outTgt || this.r3d.camTarget;
+    const fx0 = ct.x - cam.position.x, fz0 = ct.z - cam.position.z;
     const l = Math.hypot(fx0, fz0) || 1;
     return { fx: fx0 / l, fy: fz0 / l };
   }
@@ -812,10 +964,25 @@ class Game {
       const lx = (mob.lookDX || 0) + (mob.aimDragX || 0) + (this._lookAccX || 0) * 0.55 + (mob.aimStickX || 0) * 420 * dt;
       const ly = (mob.lookDY || 0) + (mob.aimDragY || 0) + (this._lookAccY || 0) * 0.55 + (mob.aimStickY || 0) * 300 * dt;
       this._lookAccX = 0; this._lookAccY = 0;
-      if (this.drivenCar) this.lookOffset += lx * 0.0055;
-      else this.camYaw -= lx * 0.0055;
-      if (mob.rotate) { if (this.drivenCar) this.lookOffset -= mob.rotate * 1.8 * dt; else this.camYaw += mob.rotate * 1.8 * dt; }
-      this.lookPitch = Math.max(-1.2, Math.min(1.35, this.lookPitch + ly * 0.0045));
+      // v4.1: sensibilidad ajustable + suavizado de la mirada (objetivo → valor real).
+      // Si otro código cambia yaw/pitch/offset (entrar al auto, cambiar cámara…), el objetivo se resincroniza.
+      const sens = this.settings.lookSens;
+      if (this.camYaw !== this._yawSet) this._yawT = this.camYaw;
+      if (this.lookPitch !== this._pitchSet) this._pitchT = this.lookPitch;
+      if (this.lookOffset !== this._offSet) this._offT = this.lookOffset;
+      if (this.drivenCar) this._offT += lx * 0.0055 * sens;
+      else this._yawT -= lx * 0.0055 * sens;
+      if (mob.rotate) { if (this.drivenCar) this._offT -= mob.rotate * 1.8 * dt; else this._yawT += mob.rotate * 1.8 * dt; }
+      this._pitchT = Math.max(-1.2, Math.min(1.35, this._pitchT + ly * 0.0045 * sens));
+      if (this.settings.aimAssist && this.mobile.iphoneMode && !this.drivenCar) this._aimAssist(dt, lx, ly, mob);
+      const kL = 1 - Math.exp(-dt * (this.mobile.iphoneMode ? 24 : 40));
+      this.camYaw += (this._yawT - this.camYaw) * kL;
+      this.lookPitch += (this._pitchT - this.lookPitch) * kL;
+      this.lookOffset += (this._offT - this.lookOffset) * kL;
+      if (Math.abs(this._yawT - this.camYaw) < 1e-4) this.camYaw = this._yawT;
+      if (Math.abs(this._pitchT - this.lookPitch) < 1e-4) this.lookPitch = this._pitchT;
+      if (Math.abs(this._offT - this.lookOffset) < 1e-4) this.lookOffset = this._offT;
+      this._yawSet = this.camYaw; this._pitchSet = this.lookPitch; this._offSet = this.lookOffset;
       // La mira = centro de la pantalla (rayo desde la cámara)
       const p = this.r3d.pick(0, 0, this.world, this.vehicles, this.drivenCar);
       this.aim.x = Math.max(-100, Math.min(this.world.w + 100, p.x));
@@ -874,7 +1041,36 @@ class Game {
     this.player.aimX = this.aim.x; this.player.aimY = this.aim.y;
   }
 
+  /** v4.1: asistencia de puntería suave (solo táctil): atrae la mira hacia autos/escombros cercanos al centro */
+  _aimAssist(dt, lx, ly, mob) {
+    const p = this.player;
+    const active = Math.abs(lx) + Math.abs(ly) > 0.3 || Math.abs(p.vx) + Math.abs(p.vy) > 20 || mob.fireHold || mob.catchHold;
+    if (!active || this.camMode === 'top') return;
+    const cam = this.r3d.camera.position;
+    const yaw = this._yawT, pitch = this._pitchT;
+    const CONE = 0.11;
+    let bestA = CONE, bdy = 0, bdp = 0;
+    const test = (wx, wy, wz) => {
+      const vx = wx * S - cam.x, vy = wz * S - cam.y, vz = wy * S - cam.z;
+      const hd = Math.hypot(vx, vz);
+      if (hd < 2 || hd > 70) return;
+      const ty = Math.atan2(-vx, -vz), tp = Math.atan2(-vy, hd);
+      const dy = angDiff(ty, yaw), dp = tp - pitch;
+      const a = Math.hypot(dy, dp);
+      if (a < bestA) { bestA = a; bdy = dy; bdp = dp; }
+    };
+    const v = this.vehicles;
+    for (let i = 0; i < v.length; i++) { const c = v[i]; if (c !== this.drivenCar && c.alive) test(c.cx, c.cy, (c.liftZ || 0) + 8); }
+    const d = this.world.debris;
+    for (let i = 0; i < d.length; i++) { const b = d[i]; if (b.alive !== false && (b.mass || 1) > 0.6) test(b.x + (b.w || 0) / 2, b.y + (b.h || 0) / 2, (b.liftZ || 0) + 4); }
+    if (bestA >= CONE || bestA < 0.004) return;
+    const w = (1 - bestA / CONE) * Math.min(1, dt * 3.2);   // ligera: nunca “engancha”
+    this._yawT += bdy * w;
+    this._pitchT += bdp * w * 0.6;
+  }
+
   update(dt) {
+    if (!this._inLoop) this._alpha = 1;
     const world = this.world;
     const player = this.player;
     this.sessionTime += dt;
@@ -953,7 +1149,17 @@ class Game {
       const hb = !!k['shift'] || mob.handbrake || mob.gpB || mob.gpLT > 0.4;
       // v4: joystick/teclas + pedales táctiles (acelerar / freno-reversa)
       const thr = Math.max(-1, Math.min(1, -iy + (mob.gas || 0) - (mob.rev || 0)));
-      car.setDriveInput(thr, ix, hb);
+      // v4.1: dirección táctil suavizada según la velocidad (rápida en parado, tranquila a 100+ km/h)
+      let steer = ix;
+      if (this.mobile.iphoneMode && Math.abs(mob.moveX) > 0.001 || this._steerS) {
+        const sp = Math.min(1, (car.speed || 0) / 520);
+        const rate = 14 - 8 * sp;
+        const target = this.mobile.iphoneMode ? ix * (1 - 0.28 * sp) : ix;
+        this._steerS = (this._steerS || 0) + (target - (this._steerS || 0)) * (1 - Math.exp(-dt * rate));
+        if (Math.abs(this._steerS) < 0.002 && !target) this._steerS = 0;
+        if (this.mobile.iphoneMode) steer = this._steerS;
+      }
+      car.setDriveInput(thr, steer, hb);
       if ((mob.horn || this._hornKey) && SFX) SFX.horn(0.45);
       this._hornKey = false;
       player.x = car.cx; player.y = car.cy;
@@ -985,7 +1191,8 @@ class Game {
     this._syncLoops(dt);
 
     // Poderes
-    const energyRef = { value: player.energy };
+    const energyRef = this._energyRef || (this._energyRef = { value: 0 });
+    energyRef.value = player.energy;
     const res = this.powers.update(dt, this._powerCtx(), energyRef);
     player.energy = energyRef.value;
     if (res) {
@@ -994,13 +1201,18 @@ class Game {
     }
 
     // Vehículos
-    const target = this.drivenCar ? { x: this.drivenCar.cx, y: this.drivenCar.cy } : { x: player.x, y: player.y };
-    const vctx = { vehicles: this.vehicles, npcs: this.npcs, player, playerDriving: !!this.drivenCar, world, target };
-    for (const v of this.vehicles) {
+    // contexto reutilizado (sin basura por frame)
+    const vctx = this._vctx || (this._vctx = { vehicles: null, npcs: null, player: null, playerDriving: false, world: null, target: { x: 0, y: 0 } });
+    const target = vctx.target;
+    if (this.drivenCar) { target.x = this.drivenCar.cx; target.y = this.drivenCar.cy; } else { target.x = player.x; target.y = player.y; }
+    vctx.vehicles = this.vehicles; vctx.npcs = this.npcs; vctx.player = player; vctx.playerDriving = !!this.drivenCar; vctx.world = world;
+    for (let vi = 0; vi < this.vehicles.length; vi++) {
+      const v = this.vehicles[vi];
       v.update(dt, world, world.particles, vctx);
       if (v.landed > 150 && v.playerTouch > 0) this.addShake(Math.min(8, v.landed * 0.02));
     }
-    resolveVehicleCollisions(this.vehicles, world, (s) => { this.score += s; }, (sh) => this.addShake(sh), this.npcs);
+    if (!this._onCollScore) { this._onCollScore = (sc) => { this.score += sc; }; this._onCollShake = (sh) => this.addShake(sh); }
+    resolveVehicleCollisions(this.vehicles, world, this._onCollScore, this._onCollShake, this.npcs);
     if (this.drivenCar && this.drivenCar.speed > 160 && Math.random() < 0.1) this._alertNpcs(this.drivenCar.cx, this.drivenCar.cy, 80);
 
     // Autos voladores vs rival / jugador
@@ -1095,10 +1307,17 @@ class Game {
     }
 
     // NPCs
-    const tgt = this.drivenCar ? { x: this.drivenCar.cx, y: this.drivenCar.cy } : player;
-    for (const n of this.npcs) n.update(dt, world, player, n.hostile ? tgt : null);
-    for (const n of this.npcs) if (!n.alive) dustCloud(world.particles, n.cx, n.cy, 3, { size: 8 });
-    this.npcs = this.npcs.filter(n => n.alive);
+    const tgt = this.drivenCar ? target : player;
+    const npcs = this.npcs;
+    for (let ni = 0; ni < npcs.length; ni++) { const n = npcs[ni]; n.update(dt, world, player, n.hostile ? tgt : null); }
+    // compactar en el sitio (sin crear un array nuevo cada frame)
+    let nw = 0;
+    for (let ni = 0; ni < npcs.length; ni++) {
+      const n = npcs[ni];
+      if (n.alive) npcs[nw++] = n;
+      else dustCloud(world.particles, n.cx, n.cy, 3, { size: 8 });
+    }
+    npcs.length = nw;
 
     // Rival
     if (this.rival?.alive) {
@@ -1163,11 +1382,23 @@ class Game {
 
   render(dt) {
     const r3d = this.r3d;
-    const camState = this.drivenCar
-      ? { mode: 'drive', view: this.camMode, car: this.drivenCar, lookOffset: this.lookOffset, lookPitch: this.lookPitch, fpsFov: this.fpsFov, shake: this.shakeAmt, zoom: this.camMode === 'third' ? 0.7 * this.thirdDist / 7 : 1.1 * this.farDist / 16 }
-      : { mode: 'foot', view: this.camMode, x: this.player.x, y: this.player.y, z: this.player.z, yaw: this.camYaw, pitch: 0.98, lookPitch: this.lookPitch,
-          dist: this.camDist, tDist: this.camMode === 'far' ? this.farDist : this.thirdDist, fpsFov: this.fpsFov, shake: this.shakeAmt };
-    r3d.updateCamera(camState, dt);
+    // estado de cámara reutilizado (sin basura por frame)
+    const cs = this._camState || (this._camState = { mode: 'foot', view: 'far', car: null, x: 0, y: 0, z: 0, vx: 0, vy: 0, yaw: 0, pitch: 0.98, lookPitch: 0, lookOffset: 0, dist: 36, tDist: 7, fpsFov: 70, shake: 0, zoom: 1 });
+    const pl = this.player;
+    cs.view = this.camMode; cs.lookPitch = this.lookPitch; cs.fpsFov = this.fpsFov; cs.shake = this.shakeAmt;
+    if (this.drivenCar) {
+      cs.mode = 'drive'; cs.car = this.drivenCar; cs.lookOffset = this.lookOffset;
+      cs.zoom = this.camMode === 'third' ? 0.7 * this.thirdDist / 7 : 1.1 * this.farDist / 16;
+    } else {
+      cs.mode = 'foot'; cs.car = null; cs.x = pl.x; cs.y = pl.y; cs.z = pl.z; cs.vx = pl.vx; cs.vy = pl.vy;
+      cs.yaw = this.camYaw; cs.dist = this.camDist; cs.tDist = this.camMode === 'far' ? this.farDist : this.thirdDist;
+    }
+    r3d.updateCamera(cs, dt);
+    // mira suavizada (la retícula no salta entre bordes/suelo)
+    const av = this.aimView || (this.aimView = { x: this.aim.x, y: this.aim.y, z: this.aim.z });
+    const jump = Math.abs(this.aim.x - av.x) + Math.abs(this.aim.y - av.y) + Math.abs(this.aim.z - av.z);
+    if (jump > 220 || this.aimMode !== 'center') { av.x = this.aim.x; av.y = this.aim.y; av.z = this.aim.z; }
+    else { const ka = 1 - Math.exp(-dt * 22); av.x += (this.aim.x - av.x) * ka; av.y += (this.aim.y - av.y) * ka; av.z += (this.aim.z - av.z) * ka; }
     r3d.sync(this, dt);
     r3d.render();
 
@@ -1187,8 +1418,12 @@ class Game {
     if (this.mode === 'survival' || this.mode === 'duel') {
       const bw = 140;
       let y = this.mobile?.iphoneMode ? 118 : 70;
-      const en = document.querySelector('.hud-energy'), gs = this.hud2d?.getBoundingClientRect?.();
-      if (en && gs) { const r = en.getBoundingClientRect(); if (r.height) y = r.bottom - gs.top + 5; }
+      if (!this._hpBarY || (this._hpBarT = (this._hpBarT || 0) + 1) % 60 === 0) {   // medir el layout solo de vez en cuando
+        const en = document.querySelector('.hud-energy'), gs = this.hud2d?.getBoundingClientRect?.();
+        this._hpBarY = y;
+        if (en && gs) { const r = en.getBoundingClientRect(); if (r.height) this._hpBarY = r.bottom - gs.top + 5; }
+      }
+      y = this._hpBarY;
       ctx.fillStyle = '#0b1220cc'; ctx.fillRect(W / 2 - bw / 2, y, bw, 12);
       ctx.fillStyle = '#e17055'; ctx.fillRect(W / 2 - bw / 2, y, bw * Math.max(0, this.player.hp / this.player.maxHp), 12);
       ctx.strokeStyle = '#fff4'; ctx.strokeRect(W / 2 - bw / 2, y, bw, 12);

@@ -445,6 +445,7 @@ export class WheelBatch {
 
 const DEFORM_KEYS = ['paint', 'hood', 'doorL', 'doorR', 'bumper', 'trim', 'glass', 'head', 'tail', 'plate', 'sign'];
 const WHEELS = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
+const PART_BITS = ['hood', 'bumper', 'doorL', 'doorR', 'wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
 let lodShared = null;
 
 export class CarModel {
@@ -627,7 +628,8 @@ export class CarModel {
       if (this.meshes.glass) this.meshes.glass.material = gs >= 2 ? sh.glassBroken : gs === 1 ? sh.glassCracked : sh.glass;
     }
     // piezas desprendidas
-    const att = Object.entries(v.parts).filter(([, p]) => p.attached === false).map(([k]) => k).join(',');
+    let att = 0;      // máscara de piezas sueltas (sin crear strings por cuadro)
+    for (let i = 0; i < PART_BITS.length; i++) if (v.parts[PART_BITS[i]].attached === false) att |= 1 << i;
     if (att !== this._attached && !this.isLod) {
       this._attached = att;
       for (const k of ['hood', 'bumper', 'doorL', 'doorR']) if (this.meshes[k]) this.meshes[k].visible = v.parts[k].attached !== false;

@@ -15,6 +15,11 @@ import { sfx } from './audio.js';
 
 const CAR_COLORS = ['#c0392b', '#2e6fb7', '#27ae60', '#e67e22', '#8e44ad', '#16a085', '#ecf0f1', '#34495e', '#1d1f24', '#7f8c8d', '#d35400', '#9fb4c7', '#6b1f2a'];
 const G = 98;                // gravedad en px/s² (1 px = 0.1 m)
+const WHEEL_KEYS = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
+const CIRC_F = [1, -1, 0, 0.5, -0.5];
+const EMPTY = [];
+const _best = { pen: 0, nx: 0, ny: 0, px: 0, py: 0 };
+const inside = (r, x, y) => x > r.x - 4 && x < r.x + r.w + 4 && y > r.y - 4 && y < r.y + r.h + 4;
 const MAX_LOOSE_PARTS = 46;  // tope de piezas sueltas en el mundo (móvil)
 
 /** Tipos de vehículo: medidas (px), masa, potencia, agarre, balanceo, dirección */
@@ -145,10 +150,13 @@ export class Vehicle {
     return this.vx * Math.cos(this.angle) + this.vy * Math.sin(this.angle);
   }
   get totalHp() {
-    return Object.values(this.parts).reduce((s, p) => s + Math.max(0, p.hp), 0);
+    const L = this._partList || (this._partList = Object.values(this.parts));
+    let s = 0; for (let i = 0; i < L.length; i++) s += Math.max(0, L[i].hp);
+    return s;
   }
   get maxTotalHp() {
-    return Object.values(this.parts).reduce((s, p) => s + p.max, 0);
+    if (this._maxHp == null) { let s = 0; for (const p of Object.values(this.parts)) s += p.max; this._maxHp = s; }
+    return this._maxHp;
   }
   get damageRatio() { return 1 - this.totalHp / this.maxTotalHp; }
   get wreckTier() {
@@ -168,27 +176,27 @@ export class Vehicle {
   aabb() {
     const c = Math.abs(Math.cos(this.angle)), s = Math.abs(Math.sin(this.angle));
     const w = c * this.w + s * this.h, h = s * this.w + c * this.h;
-    return { x: this.cx - w / 2, y: this.cy - h / 2, w, h };
+    const o = this._aabbO || (this._aabbO = { x: 0, y: 0, w: 0, h: 0 });   // reutilizado (sin basura por cuadro)
+    o.x = this.cx - w / 2; o.y = this.cy - h / 2; o.w = w; o.h = h;
+    return o;
   }
   /** Dos círculos (frente / atrás) para colisión auto-auto */
   circles() {
     const r = this.h / 2, off = this.w / 2 - r;
     const c = Math.cos(this.angle), s = Math.sin(this.angle);
-    const out = [
-      { x: this.cx + c * off, y: this.cy + s * off, r },
-      { x: this.cx - c * off, y: this.cy - s * off, r },
-      { x: this.cx, y: this.cy, r },
-    ];
-    if (off > r * 1.6) {     // vehículos largos (bus): círculos intermedios
-      for (const f of [0.5, -0.5]) out.push({ x: this.cx + c * off * f, y: this.cy + s * off * f, r });
-    }
+    const long = off > r * 1.6;      // vehículos largos (bus): círculos intermedios
+    let out = this._circ;
+    if (!out) { out = this._circ = []; for (let i = 0; i < (long ? 5 : 3); i++) out.push({ x: 0, y: 0, r: 0 }); }
+    const F = CIRC_F;
+    const cx = this.cx, cy = this.cy;
+    for (let i = 0; i < out.length; i++) { const o = out[i]; o.x = cx + c * off * F[i]; o.y = cy + s * off * F[i]; o.r = r; }
     return out;
   }
 
   /** Agarre global (ruedas faltantes / daño) */
   get grip() {
-    const wheels = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
-    const ok = wheels.filter(k => this.parts[k].attached && this.parts[k].hp > 5).length;
+    let ok = 0;
+    for (let i = 0; i < 4; i++) { const p = this.parts[WHEEL_KEYS[i]]; if (p.attached && p.hp > 5) ok++; }
     let g = 0.3 + 0.7 * (ok / 4);
     g *= 1 - this.damageRatio * 0.2;
     return Math.max(0.15, g) * (this.spec?.grip || 1);
@@ -236,9 +244,9 @@ export class Vehicle {
     const max = this.maxSpeed;
     const thr = this.inputThrottle, hb = this.inputHandbrake;
     const P = this.parts;
-    const axleOK = (l, r) => (P[l].attached ? 0.5 : 0.12) + (P[r].attached ? 0.5 : 0.12);
-    const gripF = this.grip * axleOK('wheelFL', 'wheelFR');
-    const gripR = this.grip * axleOK('wheelRL', 'wheelRR');
+    const grip0 = this.grip;
+    const gripF = grip0 * ((P.wheelFL.attached ? 0.5 : 0.12) + (P.wheelFR.attached ? 0.5 : 0.12));
+    const gripR = grip0 * ((P.wheelRL.attached ? 0.5 : 0.12) + (P.wheelRR.attached ? 0.5 : 0.12));
 
     // Dirección: lenta (peso) y con menos ángulo a alta velocidad
     const ai = !this.driven;
@@ -683,7 +691,7 @@ export class Vehicle {
     let block = false;
     if (this.ignoreObstacles > 0) this.ignoreObstacles -= dt;
     else {
-      for (const o of ctx.vehicles || []) {
+      for (const o of ctx.vehicles || EMPTY) {
         if (o === this || !o.alive || o.liftZ > 20) continue;
         const dx = o.cx - this.cx, dy = o.cy - this.cy;
         const f = dx * fx + dy * fy;
@@ -694,10 +702,11 @@ export class Vehicle {
         if (parallel > 0.6 || !o.aiDrive || o.id < this.id || Math.abs(parallel) < 0.5 && f < 40) { block = true; break; }
       }
       if (!block) {
-        const peds = [...(ctx.npcs || [])];
-        if (ctx.player && !ctx.playerDriving) peds.push({ cx: ctx.player.x, cy: ctx.player.y });
-        for (const n of peds) {
-          const dx = n.cx - this.cx, dy = n.cy - this.cy;
+        const npcs = ctx.npcs || EMPTY;
+        const nP = npcs.length + (ctx.player && !ctx.playerDriving ? 1 : 0);
+        for (let i = 0; i < nP; i++) {
+          const n = npcs[i];
+          const dx = (n ? n.cx : ctx.player.x) - this.cx, dy = (n ? n.cy : ctx.player.y) - this.cy;
           const f = dx * fx + dy * fy;
           if (f <= 0 || f > 50) continue;
           if (Math.abs(-dx * fy + dy * fx) < 16) { block = true; break; }
@@ -709,7 +718,6 @@ export class Vehicle {
       const res = world._ixRes || (world._ixRes = new Map());
       const ahead = this.w * 0.5 + 22 + Math.max(0, this.forwardSpeed) * 0.12;
       const ax = this.cx + fx * ahead, ay = this.cy + fy * ahead;
-      const inside = (r, x, y) => x > r.x - 4 && x < r.x + r.w + 4 && y > r.y - 4 && y < r.y + r.h + 4;
       let ixHere = -1, ixAhead = -1;
       for (let i = 0; i < world.intersections.length; i++) {
         const r = world.intersections[i];
@@ -908,14 +916,17 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
       const credPair = credited(a) || credited(b);
       if (!credPair && (a.ghost > 0 || b.ghost > 0)) continue;
       const cb = b.circles();
-      let best = null;
-      for (const p of ca) for (const q of cb) {
+      let found = false;
+      const best = _best;
+      best.pen = 0;
+      for (let pi = 0; pi < ca.length; pi++) for (let qi = 0; qi < cb.length; qi++) {
+        const p = ca[pi], q = cb[qi];
         const dx = q.x - p.x, dy = q.y - p.y;
         const d = Math.hypot(dx, dy);
         const pen = p.r + q.r - d;
-        if (pen > 0 && (!best || pen > best.pen)) best = { pen, nx: dx / (d || 1), ny: dy / (d || 1), px: (p.x + q.x) / 2, py: (p.y + q.y) / 2 };
+        if (pen > 0 && pen > best.pen) { found = true; best.pen = pen; best.nx = dx / (d || 1); best.ny = dy / (d || 1); best.px = (p.x + q.x) / 2; best.py = (p.y + q.y) / 2; }
       }
-      if (!best) continue;
+      if (!found) continue;
       const ma = a.static ? a.mass * 3 : a.mass, mb = b.static ? b.mass * 3 : b.mass;
       const ia = 1 / ma, ib = 1 / mb;
       // separación
@@ -937,7 +948,8 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
         if (!b.static) b.yawRate += (rbx * best.ny - rby * best.nx) * jImp / Ib * 0.7;
         // golpe lateral muy fuerte: el más liviano puede volcar
         if (closing > 210 && (credited(a) || credited(b))) {
-          for (const [c, n, mSelf, mOther] of [[a, -1, ma, mb], [b, 1, mb, ma]]) {
+          for (let ci = 0; ci < 2; ci++) {
+            const c = ci ? b : a, n = ci ? 1 : -1, mSelf = ci ? mb : ma, mOther = ci ? ma : mb;
             if (c.static || c.liftZ > 1 || mSelf > mOther * 1.3) continue;
             const side = Math.abs(-Math.sin(c.angle) * best.nx + Math.cos(c.angle) * best.ny);
             if (side < 0.65 || Math.random() > 0.55 + (closing - 210) / 300) continue;
@@ -953,7 +965,7 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
         const tx = -best.ny, ty = best.nx;
         const slide = Math.abs((a.vx - b.vx) * tx + (a.vy - b.vy) * ty);
         if (slide > 60 && (credited(a) || credited(b))) {
-          for (const c of [a, b]) { c.scrape = 0.15; c.scrapeX = best.px; c.scrapeY = best.py; }
+          a.scrape = b.scrape = 0.15; a.scrapeX = b.scrapeX = best.px; a.scrapeY = b.scrapeY = best.py;
         }
       }
       // Tráfico ambiental (IA/estacionados sin intervención del jugador): solo se separan, sin daño

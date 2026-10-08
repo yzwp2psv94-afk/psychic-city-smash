@@ -1,4 +1,4 @@
-# Psychic City Smash · v4.0 (3D)
+# Psychic City Smash · v4.1 (3D)
 
 Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Todas las texturas son procedurales (canvas) y no se descargan assets.
 
@@ -98,6 +98,18 @@ En el menú principal:
   - Grietas y cráteres en el asfalto.
 - Partículas (polvo, humo, fuego, chispas, vidrio, energía psíquica) en dos capas de `Points` con shader propio y tope de 1800.
 - Autos low-poly hechos con primitivas: abolladuras por vértice en el punto de impacto, vidrios que se agrietan y rompen, pintura chamuscada y piezas que se desprenden (capó, puertas, defensa, ruedas).
+
+## Fluidez (v4.1)
+
+- **Bucle de paso fijo** (60 Hz) con **interpolación** al dibujar: el movimiento se ve suave aunque el iPhone baje o suba de fps (máx. 3 pasos por cuadro, sin "espiral de la muerte").
+- **Joystick flotante**: aparece donde pones el pulgar (toda la zona izquierda), con **zona muerta**, **curva exponencial** (control fino al centro) y suavizado; la base sigue al dedo si te sales del círculo.
+- **Aceleración y giro suaves** del avatar: la velocidad y la orientación se acercan al objetivo de forma exponencial (sin tirones).
+- **Cámara con resortes críticamente amortiguados** en todos los modos (1.ª, 3.ª cerca/lejos, persecución del auto, aérea): anticipa un poco hacia donde te mueves, se acerca al instante si hay un muro y se aleja despacio; los cambios de cámara se funden en 0.45 s.
+- **Mirar suavizado** y **sensibilidad** ajustable (Pausa → *Sensibilidad*), guardada en el dispositivo.
+- **Asistencia de mira** táctil (opcional, en Pausa): un leve "imán" hacia autos y escombros pesados cercanos al centro de la mira. La mira también se suaviza.
+- **Manejo**: el volante se suaviza según la velocidad (más rápido = más estable) y los **pedales son analógicos**: un toque = 85 %, arrastrar hacia arriba/abajo = de 25 % a 100 % (se puede desactivar en Pausa).
+- **Botones**: respuesta visual inmediata (brillo + escala), áreas táctiles más grandes que el dibujo, multitáctil fiable (joystick + mirar + poder a la vez), y nada se queda "pegado" (touchcancel, dedos huérfanos, cambio de app).
+- **Rendimiento**: sin basura por cuadro en los bucles calientes (colisiones, entrada, cámara) y resolución máx. 1.5× en teléfonos.
 
 ## Autos (v4): física estilo GTA IV, daño y modelos
 

@@ -41,6 +41,10 @@ export const IPHONE14 = {
   safeBottom: 34,
 };
 
+// v4.1: respuesta del joystick
+const JOY_DEAD = 0.12;   // zona muerta (fraccion del radio)
+const JOY_EXPO = 1.4;    // curva exponencial: control fino cerca del centro
+
 export class MobileControls {
   constructor(game) {
     this.game = game;
@@ -100,6 +104,16 @@ export class MobileControls {
     this._canvasTouches = new Map();
     this._press = null;   // toque de 1 dedo sobre el mundo 3D
     this._pinch = null;   // gesto de 2 dedos (zoom + giro)
+
+    // v4.1: joystick flotante con zona muerta + curva + suavizado
+    this._rawX = 0; this._rawY = 0;      // posición cruda del pulgar (-1..1)
+    this._joyOff = { x: 0, y: 0 };       // desplazamiento de la base respecto a su sitio de reposo
+    this._joyR = 50;
+    // pedales analógicos (0..1, suavizados)
+    this.gas = 0; this.rev = 0; this._gasT = 0; this._revT = 0;
+    this._buttons = [];                  // registro para liberar toques huérfanos
+    this._out = {};                      // salida de poll() reutilizada (sin basura por frame)
+    this._prevBtnVals = [];
   }
 
   /** Call after DOM ready */
@@ -109,6 +123,7 @@ export class MobileControls {
     this._els = {
       touchHud: document.getElementById('touchHud'),
       joyBase: document.getElementById('joyBase'),
+      joyZone: document.getElementById('joyZone'),
       joyKnob: document.getElementById('joyKnob'),
       lookZone: document.getElementById('lookZone'),
       btnEnter: document.getElementById('touchEnter'),
@@ -267,33 +282,83 @@ export class MobileControls {
   }
 
   _bindTouchButtons() {
-    const press = (el, onDown, onUp) => {
-      if (!el) return;
-      const down = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        el.classList.add('pressed');
-        onDown?.();
-      };
-      const up = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    /**
+     * v4.1: botón táctil fiable con varios dedos.
+     *  - cada botón recuerda QUÉ dedos lo tocan (ids) → soltar otro dedo no lo suelta
+     *  - si un dedo “se pierde” (touchcancel, notificación, gesto del sistema) se libera igual
+     *  - deslizar fuera del botón lo suelta (salvo botones de arrastre: ⚡, 👀, 💥, pedales)
+     *  - respuesta instantánea: clase .pressed en el mismo touchstart
+     */
+    const press = (el, onDown, onUp, opts = {}) => {
+      if (!el) return null;
+      const ids = new Set();
+      let mouse = false, rect = null;
+      const b = { el, ids, keep: !!opts.keep, release: null };
+      const doRelease = () => {
+        if (ids.size || mouse || !el.classList.contains('pressed')) return;
         el.classList.remove('pressed');
         onUp?.();
       };
-      el.addEventListener('touchstart', down, { passive: false });
-      el.addEventListener('touchend', up, { passive: false });
-      el.addEventListener('touchcancel', up, { passive: false });
+      b.release = (all) => { if (all) { ids.clear(); mouse = false; } doRelease(); };
+      const down = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const was = ids.size > 0 || mouse;
+        const t = e.changedTouches?.[0];
+        if (e.changedTouches) for (let i = 0; i < e.changedTouches.length; i++) ids.add(e.changedTouches[i].identifier);
+        else mouse = true;
+        rect = el.getBoundingClientRect();
+        if (!was) { el.classList.add('pressed'); onDown?.(t || e); }
+      };
+      const move = (e) => {
+        if (b.keep || !rect) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
+          if (!ids.has(t.identifier)) continue;
+          const m = 34;
+          if (t.clientX < rect.left - m || t.clientX > rect.right + m || t.clientY < rect.top - m || t.clientY > rect.bottom + m) {
+            ids.delete(t.identifier); doRelease();
+          }
+        }
+      };
+      const up = (e) => {
+        e.stopPropagation();
+        for (let i = 0; i < e.changedTouches.length; i++) ids.delete(e.changedTouches[i].identifier);
+        doRelease();
+      };
+      el.addEventListener('touchstart', down, { passive: false });   // necesario: evita zoom/scroll/click fantasma
+      el.addEventListener('touchmove', move, { passive: true });
+      el.addEventListener('touchend', up, { passive: true });
+      el.addEventListener('touchcancel', up, { passive: true });
       el.addEventListener('mousedown', down);
-      el.addEventListener('mouseup', up);
-      el.addEventListener('mouseleave', up);
+      const mup = () => { if (!mouse) return; mouse = false; doRelease(); };
+      el.addEventListener('mouseup', mup);
+      el.addEventListener('mouseleave', mup);
+      this._buttons.push(b);
+      return b;
     };
+    this._pressHelper = press;
 
     press(this._els.btnEnter, () => { this._enterPressed = true; });
     press(this._els.btnBrake, () => { this.handbrake = true; }, () => { this.handbrake = false; });
-    // v4: pedales analógicos simples (mantener)
-    if (this._els.btnGas) press(this._els.btnGas, () => { this.gas = true; }, () => { this.gas = false; });
-    if (this._els.btnRev) press(this._els.btnRev, () => { this.rev = true; }, () => { this.rev = false; });
+    // v4.1: pedales analógicos — tocar = 85 %, deslizar hacia arriba = 100 %, hacia abajo = suave (25 %)
+    const pedal = (el, set) => {
+      if (!el) return;
+      let y0 = 0, id = null;
+      const analog = () => this.game?.settings?.analogPedals !== false;
+      press(el, (t) => { y0 = t.clientY ?? 0; id = t.identifier ?? null; set(analog() ? 0.85 : 1); },
+        () => { id = null; set(0); }, { keep: true });
+      el.addEventListener('touchmove', (e) => {
+        if (!analog()) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
+          if (t.identifier !== id) continue;
+          set(Math.max(0.25, Math.min(1, 0.85 + (y0 - t.clientY) / 60)));
+        }
+      }, { passive: true });
+    };
+    pedal(this._els.btnGas, v => { this._gasT = v; });
+    pedal(this._els.btnRev, v => { this._revT = v; });
     if (this._els.btnHorn) press(this._els.btnHorn, () => { this._hornPressed = true; });
     press(this._els.btnPause, () => { this._pausePressed = true; });
     press(this._els.btnFire, () => {
@@ -302,7 +367,7 @@ export class MobileControls {
     }, () => {
       this._powerFire = false;
       this._powerReleaseEdge = true;
-    });
+    }, { keep: true });
 
     // ⚡ mantener + arrastrar = mover la mira; soltar = lanzar
     const fire = this._els.btnFire;
@@ -310,14 +375,14 @@ export class MobileControls {
       let last = null;
       fire.addEventListener('touchstart', (e) => { const t = e.changedTouches[0]; last = { x: t.clientX, y: t.clientY, id: t.identifier }; }, { passive: true });
       fire.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        for (const t of e.changedTouches) {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
           if (!last || t.identifier !== last.id) continue;
           this.aimDragX += t.clientX - last.x;
           this.aimDragY += t.clientY - last.y;
           last.x = t.clientX; last.y = t.clientY;
         }
-      }, { passive: false });
+      }, { passive: true });
     }
 
     // 💥 Slam rápido: selecciona Slam, mantener = levantar, soltar = golpe; luego vuelve al poder anterior
@@ -331,7 +396,7 @@ export class MobileControls {
       if (!this._powerFire) return;
       this._powerFire = false;
       this._powerReleaseEdge = true;
-    });
+    }, { keep: true });
 
     // Zoom de cámara (+ / −) y giro (mantener)
     press(document.getElementById('touchZoomIn'), () => this.game?.zoomBy?.(-6));
@@ -345,19 +410,19 @@ export class MobileControls {
     press(document.getElementById('touchUp'), () => { this._flyUp = true; }, () => { this._flyUp = false; });
     press(document.getElementById('touchDown'), () => { this._flyDown = true; }, () => { this._flyDown = false; });
     const laserBtn = document.getElementById('touchLaser');
-    press(laserBtn, () => { this._laser = true; }, () => { this._laser = false; });
+    press(laserBtn, () => { this._laser = true; }, () => { this._laser = false; }, { keep: true });
     if (laserBtn) {
       // arrastrar sobre 👀 = apuntar mientras disparas
       let lastL = null;
       laserBtn.addEventListener('touchstart', (e) => { const t = e.changedTouches[0]; lastL = { x: t.clientX, y: t.clientY, id: t.identifier }; }, { passive: true });
       laserBtn.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        for (const t of e.changedTouches) {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
           if (!lastL || t.identifier !== lastL.id) continue;
           this.aimDragX += t.clientX - lastL.x; this.aimDragY += t.clientY - lastL.y;
           lastL.x = t.clientX; lastL.y = t.clientY;
         }
-      }, { passive: false });
+      }, { passive: true });
     }
 
     press(this._els.btnCatch, () => { this._catchHold = true; }, () => { this._catchHold = false; });
@@ -383,23 +448,33 @@ export class MobileControls {
   _bindTouch() {
     const joy = this._els.joyBase;
     const look = this._els.lookZone;
-    if (!joy || !look) return;
+    if (!joy) return;
+    const zone = this._els.joyZone || joy;
 
-    const joyR = () => joy.getBoundingClientRect().width * 0.42;
-
-    joy.addEventListener('touchstart', (e) => {
+    // v4.1: joystick FLOTANTE — aparece donde apoyas el pulgar dentro de la zona izquierda
+    const setBase = () => { joy.style.transform = `translate3d(${this._joyOff.x}px, ${this._joyOff.y}px, 0)`; };
+    zone.addEventListener('touchstart', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (this._joyId != null) return;                  // ya hay un pulgar en el joystick
       const t = e.changedTouches[0];
+      const r = joy.getBoundingClientRect();
+      const R = r.width / 2;
+      const restX = r.left + R - this._joyOff.x, restY = r.top + R - this._joyOff.y;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const cx = Math.max(R + 4, Math.min(vw - R - 4, t.clientX));
+      const cy = Math.max(R + 4, Math.min(vh - R - 4, t.clientY));
+      this._joyOff.x = cx - restX; this._joyOff.y = cy - restY;
+      joy.classList.add('active');
+      setBase();
       this._joyActive = true;
       this._joyId = t.identifier;
-      const r = joy.getBoundingClientRect();
-      this._joyOrigin.x = r.left + r.width / 2;
-      this._joyOrigin.y = r.top + r.height / 2;
-      this._updateJoy(t.clientX, t.clientY, joyR());
+      this._joyR = R * 0.84;
+      this._joyOrigin.x = cx; this._joyOrigin.y = cy;
+      this._updateJoy(t.clientX, t.clientY, this._joyR);
     }, { passive: false });
 
-    look.addEventListener('touchstart', (e) => {
+    if (look) look.addEventListener('touchstart', (e) => {
       e.preventDefault();
       e.stopPropagation();
       const t = e.changedTouches[0];
@@ -410,51 +485,91 @@ export class MobileControls {
       this._lookStart = { x: t.clientX, y: t.clientY, t: performance.now(), moved: 0 };
     }, { passive: false });
 
+    // pasivo: el scroll ya lo bloquea el touchstart (y el guardia único de abajo)
     window.addEventListener('touchmove', (e) => {
       if (!this.iphoneMode) return;
-      for (const t of e.changedTouches) {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
         if (t.identifier === this._joyId) {
-          e.preventDefault();
-          this._updateJoy(t.clientX, t.clientY, joyR());
+          this._updateJoy(t.clientX, t.clientY, this._joyR);
         } else if (t.identifier === this._lookId) {
-          e.preventDefault();
           const dx = t.clientX - this._lookLast.x;
           const dy = t.clientY - this._lookLast.y;
           this._lookLast.x = t.clientX;
           this._lookLast.y = t.clientY;
-          // Arrastre = cámara (X gira, Y acerca/aleja la mira)
           this.lookDX += dx;
           this.lookDY += dy;
           this._lookStart.moved += Math.abs(dx) + Math.abs(dy);
         }
       }
-    }, { passive: false });
+    }, { passive: true });
 
     const endTouch = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier === this._joyId) {
-          this._joyActive = false;
-          this._joyId = null;
-          this.moveX = 0;
-          this.moveY = 0;
-          this._els.joyKnob && (this._els.joyKnob.style.transform = 'translate(-50%, -50%)');
-        }
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === this._joyId) this._releaseJoy();
         if (t.identifier === this._lookId) {
-          // Toque corto sin arrastre = apuntar ahí
           const ls = this._lookStart;
-          if (ls.moved < 10 && performance.now() - ls.t < 280) this._aimFromScreen(t.clientX, t.clientY);
+          if (e.type === 'touchend' && ls.moved < 10 && performance.now() - ls.t < 280) this._aimFromScreen(t.clientX, t.clientY);
           this.lookActive = false;
           this._lookId = null;
         }
       }
+      this._sweepOrphans(e.touches);
     };
-    window.addEventListener('touchend', endTouch, { passive: false });
-    window.addEventListener('touchcancel', endTouch, { passive: false });
+    window.addEventListener('touchend', endTouch, { passive: true });
+    window.addEventListener('touchcancel', endTouch, { passive: true });
+    // un dedo nuevo: si algún botón cree tener un dedo que ya no existe, se suelta
+    window.addEventListener('touchstart', (e) => this._sweepOrphans(e.touches), { passive: true, capture: true });
+    const releaseAll = () => this.releaseAll();
+    window.addEventListener('blur', releaseAll);
+    window.addEventListener('pagehide', releaseAll);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
 
-    // Prevent document overscroll bounce
+    // Guardia ÚNICO no pasivo: evita rebote/scroll del documento y el pellizco de página,
+    // pero deja funcionar los deslizadores y el panel de pausa
     document.addEventListener('touchmove', (e) => {
-      if (this.iphoneMode && e.target.closest?.('#gameScreen')) e.preventDefault();
+      if (e.touches.length > 1) { e.preventDefault(); return; }
+      const tg = e.target;
+      if (!this.iphoneMode || !tg?.closest) return;
+      if (tg.closest('input[type=range], .overlay-panel')) return;
+      if (tg.closest('#gameScreen')) e.preventDefault();
     }, { passive: false });
+  }
+
+  _releaseJoy() {
+    this._joyActive = false;
+    this._joyId = null;
+    this._rawX = 0; this._rawY = 0;
+    const joy = this._els.joyBase;
+    if (this._els.joyKnob) this._els.joyKnob.style.transform = 'translate(-50%, -50%)';
+    if (joy) { joy.classList.remove('active'); this._joyOff.x = 0; this._joyOff.y = 0; joy.style.transform = ''; }
+  }
+
+  /** Suelta botones cuyos dedos ya no están en pantalla (touchcancel perdido, gesto del sistema…) */
+  _sweepOrphans(touches) {
+    const n = touches ? touches.length : 0;
+    const alive = (id) => { for (let i = 0; i < n; i++) if (touches[i].identifier === id) return true; return false; };
+    for (const b of this._buttons) {
+      if (!b.ids.size) continue;
+      for (const id of b.ids) if (!alive(id)) b.ids.delete(id);
+      if (!b.ids.size) b.release(false);
+    }
+    if (this._joyId != null && !alive(this._joyId)) this._releaseJoy();
+    if (this._lookId != null && !alive(this._lookId)) { this._lookId = null; this.lookActive = false; }
+    if (this._look1 && !alive(this._look1.id)) this._look1 = null;
+    for (const id of this._canvasTouches.keys()) if (!alive(id)) this._canvasTouches.delete(id);
+    if (this._canvasTouches.size < 2) this._pinch = null;
+  }
+
+  /** Suelta todo (app en segundo plano, pérdida de foco) */
+  releaseAll() {
+    for (const b of this._buttons) b.release(true);
+    this._releaseJoy();
+    this._lookId = null; this.lookActive = false; this._look1 = null;
+    this._canvasTouches.clear(); this._pinch = null;
+    this._gasT = 0; this._revT = 0; this.gas = 0; this.rev = 0;
+    if (this._press) { clearTimeout(this._press.timer); this._press = null; if (this.game?.mouse) this.game.mouse.down = false; }
   }
 
   /** Evita el zoom de página de Safari (pellizco / doble toque) */
@@ -463,9 +578,7 @@ export class MobileControls {
     for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
       document.addEventListener(ev, stop, { passive: false });
     }
-    document.addEventListener('touchmove', (e) => {
-      if (e.touches.length > 1) e.preventDefault();
-    }, { passive: false });
+    // (el guardia de touchmove vive en _bindTouch: uno solo, no pasivo)
     let lastEnd = 0;
     document.addEventListener('touchend', (e) => {
       const now = performance.now();
@@ -543,10 +656,11 @@ export class MobileControls {
     }, { passive: false });
 
     cv.addEventListener('touchmove', (e) => {
-      e.preventDefault();
       const game = g();
-      for (const t of e.changedTouches) {
-        if (this._canvasTouches.has(t.identifier)) this._canvasTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        const ct = this._canvasTouches.get(t.identifier);
+        if (ct) { ct.x = t.clientX; ct.y = t.clientY; }
         if (this._look1 && t.identifier === this._look1.id && !this._pinch) {
           this.lookDX += t.clientX - this._look1.x; this.lookDY += t.clientY - this._look1.y;
           this._look1.x = t.clientX; this._look1.y = t.clientY;
@@ -564,33 +678,60 @@ export class MobileControls {
         this._pinch.mx = pi.mx; this._pinch.my = pi.my;
         if (!game.camMode || game.camMode === 'top') this.lookDX += dx; // arrastre con 2 dedos = girar cámara
       }
-    }, { passive: false });
+    }, { passive: true });
 
     const onEnd = (e) => {
-      e.preventDefault();
-      for (const t of e.changedTouches) {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
         this._canvasTouches.delete(t.identifier);
         if (this._look1 && t.identifier === this._look1.id) this._look1 = null;
         if (this._press && t.identifier === this._press.id) endPress(e.type === 'touchcancel');
       }
       if (this._canvasTouches.size < 2) this._pinch = null;
     };
-    cv.addEventListener('touchend', onEnd, { passive: false });
-    cv.addEventListener('touchcancel', onEnd, { passive: false });
+    cv.addEventListener('touchend', onEnd, { passive: true });
+    cv.addEventListener('touchcancel', onEnd, { passive: true });
   }
 
   _updateJoy(cx, cy, maxR) {
     let dx = cx - this._joyOrigin.x;
     let dy = cy - this._joyOrigin.y;
-    const len = Math.hypot(dx, dy) || 1;
+    let len = Math.hypot(dx, dy) || 1;
+    // la base sigue al pulgar si se aleja mucho (no hace falta volver al centro)
+    const follow = maxR * 1.35;
+    if (len > follow) {
+      const sx = dx / len * (len - follow), sy = dy / len * (len - follow);
+      this._joyOrigin.x += sx; this._joyOrigin.y += sy;
+      this._joyOff.x += sx; this._joyOff.y += sy;
+      const joy = this._els.joyBase;
+      if (joy) joy.style.transform = `translate3d(${this._joyOff.x}px, ${this._joyOff.y}px, 0)`;
+      dx -= sx; dy -= sy; len = follow;
+    }
     const clamped = Math.min(len, maxR);
     dx = (dx / len) * clamped;
     dy = (dy / len) * clamped;
-    this.moveX = dx / maxR;
-    this.moveY = dy / maxR;
+    this._rawX = dx / maxR;
+    this._rawY = dy / maxR;
     if (this._els.joyKnob) {
-      this._els.joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+      this._els.joyKnob.style.transform = `translate(calc(-50% + ${dx.toFixed(1)}px), calc(-50% + ${dy.toFixed(1)}px))`;
     }
+  }
+
+  /** zona muerta + curva de respuesta + suavizado -> moveX / moveY */
+  _shapeJoy(dt) {
+    const rx = this._rawX, ry = this._rawY;
+    const m = Math.hypot(rx, ry);
+    let tx = 0, ty = 0;
+    if (m > JOY_DEAD) {
+      const mm = Math.min(1, (m - JOY_DEAD) / (1 - JOY_DEAD));
+      const c = mm > 0.94 ? 1 : 0.35 * mm + 0.65 * (Math.exp(JOY_EXPO * mm) - 1) / (Math.exp(JOY_EXPO) - 1);
+      tx = rx / m * c; ty = ry / m * c;
+    }
+    const k = 1 - Math.exp(-dt * (m > JOY_DEAD ? 20 : 28));
+    this.moveX += (tx - this.moveX) * k;
+    this.moveY += (ty - this.moveY) * k;
+    if (!tx && Math.abs(this.moveX) < 0.01) this.moveX = 0;
+    if (!ty && Math.abs(this.moveY) < 0.01) this.moveY = 0;
   }
 
   _aimFromScreen(clientX, clientY) {
@@ -633,29 +774,15 @@ export class MobileControls {
    * Returns consumed edges for enter/pause/fire.
    */
   poll(dt) {
-    const out = {
-      enter: false,
-      pause: false,
-      fireStart: false,
-      fireRelease: false,
-      handbrake: false,
-      gas: 0,
-      rev: 0,
-      horn: false,
-      moveX: 0,
-      moveY: 0,
-      lookDX: 0,
-      lookDY: 0,
-      aimStickX: 0,
-      aimStickY: 0,
-      rt: 0,
-      gpLT: 0,
-      gpB: false,
-      catchHold: false,
-      redirectHold: false,
-      reset: false,
-      gamepadActive: false,
-    };
+    const out = this._out;
+    out.enter = false; out.pause = false; out.fireStart = false; out.fireRelease = false;
+    out.handbrake = false; out.gas = 0; out.rev = 0; out.horn = false;
+    out.moveX = 0; out.moveY = 0; out.lookDX = 0; out.lookDY = 0;
+    out.aimStickX = 0; out.aimStickY = 0; out.rt = 0; out.gpLT = 0; out.gpB = false;
+    out.catchHold = false; out.redirectHold = false; out.reset = false; out.gamepadActive = false;
+    out.camCycle = false; out.flyToggle = false; out.flyUp = false; out.flyDown = false; out.laser = false;
+    out.fireHold = false; out.aimDragX = 0; out.aimDragY = 0; out.rotate = 0; out.restorePower = null;
+    dt = dt || 1 / 60;
 
     // Touch edges
     if (this._enterPressed) { out.enter = true; this._enterPressed = false; }
@@ -663,10 +790,17 @@ export class MobileControls {
     if (this._powerFireEdge) { out.fireStart = true; this._powerFireEdge = false; }
     if (this._powerReleaseEdge) { out.fireRelease = true; this._powerReleaseEdge = false; }
     if (this.handbrake) out.handbrake = true;
-    if (this.gas) out.gas = 1;
-    if (this.rev) out.rev = 1;
+    // pedales: subida rapida, soltar mas rapido aun
+    const kg = 1 - Math.exp(-dt * (this._gasT > this.gas ? 14 : 22));
+    this.gas += (this._gasT - this.gas) * kg; if (this.gas < 0.01 && !this._gasT) this.gas = 0;
+    const kr = 1 - Math.exp(-dt * (this._revT > this.rev ? 14 : 22));
+    this.rev += (this._revT - this.rev) * kr; if (this.rev < 0.01 && !this._revT) this.rev = 0;
+    out.gas = this.gas; out.rev = this.rev;
+    this._pedalVis(this._els.btnGas, this.gas, '_gasVis');
+    this._pedalVis(this._els.btnRev, this.rev, '_revVis');
     if (this._hornPressed) { out.horn = true; this._hornPressed = false; }
 
+    this._shapeJoy(dt);
     if (this.iphoneMode) {
       out.moveX += this.moveX;
       out.moveY += this.moveY;
@@ -703,6 +837,12 @@ export class MobileControls {
     if (ml > 1) { out.moveX /= ml; out.moveY /= ml; }
 
     return out;
+  }
+
+  _pedalVis(el, v, key) {
+    if (!el || Math.abs((this[key] ?? -1) - v) < 0.03) return;
+    this[key] = v;
+    el.style.setProperty('--amt', v.toFixed(2));
   }
 
   _pollGamepad(dt, out) {
@@ -784,8 +924,9 @@ export class MobileControls {
     // LB quick fire pulse for non-TK
     if (edge(4)) out.fireStart = true;
 
-    this._prevButtons = gp.buttons.map(b => (b.value != null ? b.value : (b.pressed ? 1 : 0)));
-    this._prevButtons._rt = rt;
+    const pb = this._prevButtons;
+    for (let i = 0; i < gp.buttons.length; i++) { const b = gp.buttons[i]; pb[i] = b.value != null ? b.value : (b.pressed ? 1 : 0); }
+    pb._rt = rt;
   }
 
   _selectPowerDelta(d) {
