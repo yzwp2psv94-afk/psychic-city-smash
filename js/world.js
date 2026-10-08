@@ -26,7 +26,9 @@ export const MAX_RUBBLE = 2400;
 export const MAX_CRACKS = 180;
 export const MAX_SLABS = 900;          // losas estáticas (pisos apilados, asfalto levantado, banqueta rota)
 export const CRATER_CAP = { high: 26, medium: 16, low: 9 };
-
+export const IMPACT_SPLASH_R = 14;
+export const IMPACT_SPLASH_FALL = 0.1;
+export const MAX_COLLAPSE_PER_FRAME = 2;
 /** Perfil de cráter: cuenco (−1 en el centro) + borde levantado (+0,25) que se desvanece hasta 1,45 r */
 export function craterProfile(t) {
   if (t < 1) return -1 + t * t * 1.25;
@@ -382,8 +384,12 @@ export class World {
   }
 
   destructionPercent() {
-    if (this.totalHp <= 0) return 0;
-    return Math.min(100, Math.round((this.destroyedHp / this.totalHp) * 100));
+    // v7: % local de la ventana activa (no “todo el mapa streameado”)
+    let total = 0, dest = 0;
+    for (const seg of this.segments) { total += seg.maxHp; dest += Math.max(0, seg.maxHp - seg.hp); }
+    for (const pr of this.props) { total += pr.maxHp; dest += Math.max(0, pr.maxHp - pr.hp); }
+    if (total <= 0) return 0;
+    return Math.min(100, Math.round((dest / total) * 100));
   }
 
   /** Itera segmentos vivos cuyo AABB toca el rectángulo dado (prefiltro por edificio) */
@@ -430,9 +436,14 @@ export class World {
     const bld = this.buildings[seg.buildingId];
     if (bld && !wasWeak && seg.hp < seg.maxHp * 0.5) {
       bld.damagedCols++;
-      // Falla estructural: demasiadas columnas debilitadas → colapso en cascada
-      if (!bld.collapsing && !bld.collapsed && bld.damagedCols >= Math.max(3, Math.ceil(bld.segs.length * 0.22))) {
-        this.startCollapse(bld, credit);
+      // Falla estructural (v7: presupuesto por frame + umbral más alto)
+      const need = Math.max(4, Math.ceil(bld.segs.length * 0.32));
+      if (!bld.collapsing && !bld.collapsed && bld.damagedCols >= need) {
+        this._collapseBudget = (this._collapseBudget || 0);
+        if (this._collapseBudget < MAX_COLLAPSE_PER_FRAME) {
+          this._collapseBudget++;
+          this.startCollapse(bld, credit);
+        }
       }
     }
     const prev = seg.floorsAlive;
@@ -883,8 +894,10 @@ export class World {
     if (!crater) this.addRoadCrack(x, y, 0.8 + power * 0.6, 'crater');
     this.fires.push({ x, y, z: 4, life: 2 + power * 2 });
     if (window.SFX) window.SFX.explosion(Math.max(0.2, Math.min(3, 0.5 + power * 0.8))); else sfx.explode?.();
-    const r = 50 + 40 * power;
-    let dmg = this.applyRadialDamage(x, y, r, 18 * power, 260 * power, credit);
+    // v7: radio/daño acotados (~1–2 manzanas máx.)
+    const pow = Math.min(1.35, power);
+    const r = Math.min(95, 38 + 32 * pow);
+    let dmg = this.applyRadialDamage(x, y, r, Math.min(48, 14 * pow), 180 * pow, credit);
     if (this.onExplosion) dmg += this.onExplosion(x, y, r, power, credit) || 0;
     return dmg;
   }
@@ -955,32 +968,51 @@ export class World {
   debrisHitsStructures(body) {
     const spd = body.speed;
     if (spd < 40) return 0;
+    // presupuesto de destrucción por cuerpo (un auto lanzado ≈ 1–2 edificios)
+    if (body._structBudget == null) body._structBudget = body.kind === 'vehicle' ? 140 : 70;
+    if (body._structBudget <= 0) return 0;
     let score = 0;
     const credit = body.playerTouch > 0;
-    const dmg = impactDamage(body.mass, spd);
-    let hitSeg = null;
+    let dmg = impactDamage(body.mass, spd);
+    dmg = Math.min(dmg, body._structBudget);
+    // Preferir fachada más cercana (City Smash: solo la cara del edificio)
+    let hitSeg = null, hitFacade = null;
     this.segmentsTouching(body, s => {
-      if ((body.liftZ || 0) < s.height) { hitSeg = s; return false; }
+      if ((body.liftZ || 0) >= s.height) return;
+      if (s.kind === 'facade' && !hitFacade) hitFacade = s;
+      if (!hitSeg) hitSeg = s;
     });
+    hitSeg = hitFacade || hitSeg;
     if (hitSeg) {
       const seg = hitSeg;
       const hpBefore = seg.hp;
-      score += this.damageSegment(seg, dmg, credit);
-      if (dmg > 60) {
-        this.segmentsInRadius(seg.cx, seg.cy, 30, s => {
-          if (s !== seg) score += this.damageSegment(s, dmg * 0.3, credit);
+      const applied = this.damageSegment(seg, dmg, credit);
+      score += applied;
+      body._structBudget -= applied;
+      // v7: salpicadura solo en la misma fachada/edificio (estilo City Smash)
+      if (dmg > 50 && body._structBudget > 0) {
+        this.segmentsInRadius(seg.cx, seg.cy, IMPACT_SPLASH_R, s => {
+          if (s === seg || s.buildingId !== seg.buildingId || body._structBudget <= 0) return;
+          const a = this.damageSegment(s, Math.min(body._structBudget, dmg * IMPACT_SPLASH_FALL), credit);
+          score += a; body._structBudget -= a;
         });
       }
+      // Cráter local en el punto de impacto (auto / meteorito)
+      if (credit && (body.kind === 'vehicle' || body.mass > 6) && spd > 100 && (body.liftZ || 0) < 35) {
+        this.addCrater(body.cx, body.cy, Math.min(2.3, 0.55 + spd / 280 * Math.sqrt(body.mass / 12)), { scorch: true });
+      }
       sparks(this.particles, body.cx, body.cy, (body.liftZ || 0) + 6, 3, 120, '#ffcf7a');
-      if (seg.destroyed && dmg > hpBefore * 1.3) {
-        const keep = Math.sqrt(Math.max(0.1, 1 - hpBefore / dmg));
-        body.vx *= keep; body.vy *= keep;     // atraviesa
+      const pierces = body._pierceLeft != null ? body._pierceLeft : 0;
+      if (seg.destroyed && dmg > hpBefore * 1.3 && pierces > 0 && body._structBudget > 40) {
+        body._pierceLeft = pierces - 1;
+        const keep = Math.sqrt(Math.max(0.25, 1 - hpBefore / dmg));
+        body.vx *= keep * 0.75; body.vy *= keep * 0.75;
       } else {
-        // rebote: sale por la normal
         const nx = body.cx - seg.cx, ny = body.cy - seg.cy;
         if (Math.abs(nx) > Math.abs(ny)) body.vx = Math.sign(nx || 1) * Math.abs(body.vx) * 0.35;
         else body.vy = Math.sign(ny || 1) * Math.abs(body.vy) * 0.35;
         this.resolveStructures(body);
+        body._structBudget = Math.min(body._structBudget, 40); // tras rebote, poco más
       }
       body.damageOnHit *= 0.85;
     }
@@ -1017,6 +1049,7 @@ export class World {
   }
 
   update(dt) {
+    this._collapseBudget = 0;
     // Partículas (compactación in-place)
     const ps = this.particles;
     let j = 0;
@@ -1072,6 +1105,8 @@ export class World {
 }
 
 /** Daño de impacto escalado por masa × velocidad */
+/** Daño de impacto (tope duro: un auto no tumba el mapa entero). */
 export function impactDamage(mass, speed) {
-  return 0.05 * mass * speed;
+  return Math.min(88, 0.045 * mass * Math.min(speed, 420));
 }
+

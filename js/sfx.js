@@ -31,6 +31,12 @@
  *   partFall()                  clank de defensa/puerta cayendo
  *   tireBounce()                rebote de llanta
  *   horn(dur=0.45)              claxon
+ *   — Maniquíes / ragdolls (caricaturesco, sin gore) —
+ *   bodyThud(force 0..1)        cuerpo hueco de plástico/madera contra el suelo
+ *   limbPop()                   articulación que se suelta ("pok" + clic)
+ *   laserSlice()                corte rápido de láser (chisporroteo/zap)
+ *   ragdollClatter()            extremidades golpeteando (con throttle)
+ *   bounce()                    golpecito hueco ligero
  *   — Volumen —
  *   setVolume(0..1), getVolume(), setMuted(bool), toggleMute(), isMuted()
  *   (persisten en localStorage, clave 'pcs.audio')
@@ -399,6 +405,57 @@
     O(v, f, 'square', 515, 0, t, d + 0.08);
   }
 
+  // ---------- Maniquíes / ragdolls ----------
+  // Golpe hueco: tono con pitch-drop rápido + resonancia de caja (bandpass) + ruido corto
+  function knock(v, t, f, amp, d) {
+    tone(v, 'triangle', f * 1.6, f, t, 0.001, amp, d);
+    tone(v, 'sine', f * 2.7, f * 2.3, t, 0.001, amp * 0.35, d * 0.6);
+    burst(v, bufWhite, 'bandpass', f * rnd(4, 6), 0, 4, t, 0.001, amp * 0.5, 0.02);
+  }
+  function bodyThud(force) {
+    if (!canPlay() || !throttle('thud', 70)) return;
+    var k = clamp(force == null ? 0.6 : force, 0, 1), v = voice(0.9); if (!v) return;
+    var t = v.t, f = rnd(150, 230) * (1.15 - 0.35 * k), amp = 0.25 + 0.45 * k;
+    knock(v, t, f, amp, 0.12 + 0.12 * k);
+    tone(v, 'sine', 110 - 30 * k, 45, t, 0.003, amp * 0.8, 0.15 + 0.1 * k);
+    burst(v, bufBrown, 'lowpass', 700, 150, 0.7, t, 0.003, amp * 0.5, 0.12);
+    if (k > 0.35) knock(v, t + rnd(0.05, 0.11), f * rnd(1.2, 1.6), amp * 0.4, 0.08); // rebote de extremidad
+  }
+  function limbPop() {
+    if (!canPlay() || !throttle('pop', 60)) return;
+    var v = voice(0.8); if (!v) return;
+    var t = v.t, f = rnd(500, 750);
+    tone(v, 'sine', f * 1.8, f * 0.7, t, 0.001, 0.4, 0.07);           // "pok"
+    tone(v, 'square', rnd(2200, 3200), 0, t, 0.0005, 0.08, 0.012);    // clic
+    burst(v, bufWhite, 'highpass', 3000, 0, 0.7, t, 0.0005, 0.2, 0.015);
+    knock(v, t + rnd(0.12, 0.2), rnd(260, 380), 0.12, 0.06);          // la pieza cae
+  }
+  function laserSlice() {
+    if (!canPlay() || !throttle('slice', 70)) return;
+    var v = voice(0.7); if (!v) return;
+    var t = v.t, f = rnd(1400, 2000);
+    tone(v, 'sawtooth', f, f * 2.2, t, 0.002, 0.12, 0.09);            // zap
+    tone(v, 'square', f * 0.5, f * 0.25, t, 0.002, 0.05, 0.08);
+    burst(v, bufWhite, 'highpass', 2500, 6000, 0.8, t, 0.003, 0.25, 0.18); // sizzle
+    for (var i = 0; i < 4; i++) {
+      burst(v, bufWhite, 'bandpass', rnd(3000, 7000), 0, 3, t + rnd(0.02, 0.2), 0.001, 0.1, 0.015);
+    }
+  }
+  function ragdollClatter() {
+    if (!canPlay() || !throttle('clat', 110)) return;
+    var v = voice(0.7); if (!v) return;
+    var n = 3 + (Math.random() * 3 | 0), tt = v.t, amp = 0.22;
+    for (var i = 0; i < n; i++, amp *= 0.8) {
+      knock(v, tt, rnd(280, 650), amp, rnd(0.03, 0.06));
+      tt += rnd(0.03, 0.09);
+    }
+  }
+  function bounce() {
+    if (!canPlay() || !throttle('bnc', 50)) return;
+    var v = voice(0.6); if (!v) return;
+    knock(v, v.t, rnd(320, 520), 0.2, 0.06);
+  }
+
   // ---------- Loops ----------
   function newLoop(level) {
     var l = { nodes: [], srcs: [], out: ctx.createGain(), stopping: false, p: {} };
@@ -570,6 +627,8 @@
     engineStart: engineStart, engineStop: engineStop, setEngine: setEngine,
     skid: skid, skidStart: skidStart, skidStop: skidStop, setSkid: setSkid,
     crash: crash, partFall: partFall, tireBounce: tireBounce, horn: horn,
+    bodyThud: bodyThud, limbPop: limbPop, laserSlice: laserSlice,
+    ragdollClatter: ragdollClatter, bounce: bounce,
     setVolume: setVolume, getVolume: getVolume,
     setMuted: setMuted, toggleMute: toggleMute, isMuted: isMuted,
     // compat (js/audio.js → sfx.*)

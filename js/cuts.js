@@ -8,6 +8,13 @@ import { FLOOR_H } from './world.js';
 import { dustCloud, sparks, glassShards, burst, addParticle } from './physics.js';
 import { sfx } from './audio.js';
 
+function playSfx(name, arg) {
+  const S = typeof window !== 'undefined' ? window.SFX : null;
+  if (S && typeof S[name] === 'function') {
+    try { arg === undefined ? S[name]() : S[name](arg); } catch (_) {}
+  }
+}
+
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 /** Perfil del láser según Fuerza (0.05–1). Baja = chamusca; alta = corta en dos. */
@@ -46,11 +53,34 @@ export function addCutPlane(world, { x, y, z, nx = 0, ny = 0, w = 20, h = 4, lif
   if (world.cutPlanes.length > 28) world.cutPlanes.shift();
 }
 
+/** Cara de corte persistente (arriba del tocón / en la pieza que cae): brilla unos segundos. */
+export function addCutFace(world, { x, y, z, w = 20, d = 20, life = 4.5, color = '#ffb060' }) {
+  if (!world.cutFaces) world.cutFaces = [];
+  world.cutFaces.push({ x, y, z, w, d, life, maxLife: life, color });
+  if (world.cutFaces.length > 40) world.cutFaces.shift();
+}
+
 export function updateCutPlanes(world, dt) {
-  if (!world.cutPlanes) return;
-  for (let i = world.cutPlanes.length - 1; i >= 0; i--) {
-    world.cutPlanes[i].life -= dt;
-    if (world.cutPlanes[i].life <= 0) world.cutPlanes.splice(i, 1);
+  if (world.cutPlanes) {
+    for (let i = world.cutPlanes.length - 1; i >= 0; i--) {
+      world.cutPlanes[i].life -= dt;
+      if (world.cutPlanes[i].life <= 0) world.cutPlanes.splice(i, 1);
+    }
+  }
+  if (world.cutFaces) {
+    for (let i = world.cutFaces.length - 1; i >= 0; i--) {
+      world.cutFaces[i].life -= dt;
+      if (world.cutFaces[i].life <= 0) world.cutFaces.splice(i, 1);
+    }
+  }
+  // Brillo del tocón en segmentos cortados
+  if (world.segments) {
+    for (const s of world.segments) {
+      if (s._cutFaceT > 0) {
+        s._cutFaceT -= dt;
+        if (s._cutFaceT <= 0) { s._cutFaceT = 0; s._cutFaceZ = null; }
+      }
+    }
   }
 }
 
@@ -134,8 +164,14 @@ export function cutBuildingSegment(world, seg, cutZ, credit = false, prof = null
   addCutPlane(world, {
     x: seg.cx, y: seg.cy, z: zPlane + 1,
     w: Math.max(seg.w, seg.h) * 1.2, h: 3.5 + debMul,
-    life: 1.2, color: '#ffb060',
+    life: 2.2, color: '#ffe0a0',
   });
+  // Cara brillante del tocón (mitad inferior) + la pieza que cae
+  addCutFace(world, { x: seg.cx, y: seg.cy, z: zPlane + 0.8, w: seg.w * 1.15, d: seg.h * 1.15, life: 7.5, color: '#ffe080' });
+  addCutFace(world, { x: seg.cx, y: seg.cy, z: zPlane + 1.6, w: seg.w * 0.95, d: seg.h * 0.95, life: 4.5, color: '#ff9040' });
+  seg._cutFaceZ = zPlane;
+  seg._cutFaceT = 8.5;
+  seg.dirty = true;
   sparks(world.particles, seg.cx, seg.cy, zPlane + 2, 8 + Math.round(debMul * 4), 180, '#ffe2a8');
   glassShards(world.particles, seg.cx, seg.cy, zPlane + 4, 6);
   burst(world.particles, seg.cx, seg.cy, 5, '#ff9a4a', { z: zPlane + 2 });
@@ -154,7 +190,7 @@ export function cutBuildingSegment(world, seg, cutZ, credit = false, prof = null
       mass: L * fh / 90, kind: 'debris', color: seg.color,
       spin: rnd(-2.5, 2.5), friction: 0.86, bounce: 0.12,
       playerTouch: credit ? 3 : 0,
-      data: { chunk: true, shape: 'slab', rebar: true, cut: true },
+      data: { chunk: true, shape: 'slab', rebar: true, cut: true, cutGlow: true },
     }));
   }
   const nChunk = Math.max(2, Math.round((2 + topN * 1.2) * debMul * (world.fxScale || 1)));
@@ -182,6 +218,7 @@ export function cutBuildingSegment(world, seg, cutZ, credit = false, prof = null
   world.segVersion++;
   world.shake = (world.shake || 0) + Math.min(3.5, 0.6 * removed);
   world._capDebris?.();
+  playSfx('laserSlice');
   try { sfx.smash(); sfx.shatter(); } catch (_) {}
   return Math.round(dmg) + removed * 4;
 }
@@ -198,6 +235,7 @@ export function cutTree(world, prop, credit = false, prof = null) {
   world.destroyedHp += prop.hp;
   prop.hp = 0;
   addCutPlane(world, { x: prop.cx, y: prop.cy, z: prop.cutZ, w: 14, h: 2.5, life: 0.85, color: '#ffb060' });
+  addCutFace(world, { x: prop.cx, y: prop.cy, z: prop.cutZ, w: 12 * (prop.scale || 1), d: 12 * (prop.scale || 1), life: 6.5, color: '#ffe080' });
   const sc = prop.scale || 1;
   world.debris.push(new Body({
     x: prop.cx - 10 * sc, y: prop.cy - 10 * sc, w: 20 * sc, h: 20 * sc, th: 16 * sc,
@@ -216,6 +254,7 @@ export function cutTree(world, prop, credit = false, prof = null) {
   sparks(world.particles, prop.cx, prop.cy, prop.cutZ, 5, 120, '#ffe2a8');
   world.propVersion++;
   world._capDebris?.();
+  playSfx('laserSlice');
   try { sfx.smash(); } catch (_) {}
   return 20;
 }
@@ -241,7 +280,7 @@ export function cutVehicle(v, world, credit = false, prof = null) {
       mass: (v.mass || 10) * 0.35, kind: 'debris', color: v.color || '#555',
       spin: side * (2 + Math.random() * 3), friction: 0.9, bounce: 0.2,
       playerTouch: credit ? 3 : 0,
-      data: { chunk: true, shape: 'slab', cut: true, carHalf: true },
+      data: { chunk: true, shape: 'slab', cut: true, carHalf: true, cutGlow: true },
       damageOnHit: 18,
     }));
   }
@@ -256,6 +295,7 @@ export function cutVehicle(v, world, credit = false, prof = null) {
   sparks(world.particles, v.cx, v.cy, 10, 12, 200, '#ffd36b');
   burst(world.particles, v.cx, v.cy, 6, '#ff7a2a', { z: 8 });
   world._capDebris?.();
+  playSfx('laserSlice');
   try { sfx.carHit?.() || sfx.smash(); } catch (_) { try { sfx.smash(); } catch (_) {} }
   return typeof sc === 'number' ? sc + 40 : 120;
 }

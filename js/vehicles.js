@@ -512,12 +512,14 @@ export class Vehicle {
     world.addRoadCrack(this.cx, this.cy, 0.7);
     if (Math.random() < 0.55 + intensity * 0.3) {
       this.onFire = 12 + Math.random() * 10;   // autos en llamas un buen rato
-      world.explosion(this.cx, this.cy, 6, 0.7, credit);
+      world.explosion(this.cx, this.cy, 6, 0.4, credit);  // v7: explosión de chatarra más local
     }
   }
 
   /** Lanzado por TK: arco + volteretas */
   launch(vx, vy, vz, credit = true) {
+    this._structBudget = 140;
+    this._pierceLeft = 1;
     this.static = false;
     this.aiDrive = false;
     this.parked = false;
@@ -1022,10 +1024,20 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
         const seg = hit.seg;
         const ang = Math.atan2(-hit.ny, -hit.nx);
         const hpBefore = seg.hp;
-        const dmgSeg = 0.05 * v.mass * spd;
+        // v7: tope de daño estructural por choque (no tumba el mapa)
+        if (v._structBudget == null) v._structBudget = 140;
+        let dmgSeg = Math.min(88, 0.045 * v.mass * Math.min(spd, 420), v._structBudget);
         const s1 = v.applyImpact(spd, world, ang, { credit, push: false });
         const s2 = world.damageSegment(seg, dmgSeg, credit);
-        if (dmgSeg > 50) world.segmentsInRadius(seg.cx, seg.cy, 28, s => { if (s !== seg) world.damageSegment(s, dmgSeg * 0.3, credit); });
+        v._structBudget -= s2;
+        if (dmgSeg > 50 && v._structBudget > 0) {
+          world.segmentsInRadius(seg.cx, seg.cy, 16, s => {
+            if (s === seg || s.buildingId !== seg.buildingId || v._structBudget <= 0) return;
+            const a = world.damageSegment(s, Math.min(v._structBudget, dmgSeg * 0.1), credit);
+            v._structBudget -= a;
+          });
+        }
+        if (credit && spd > 120) world.addCrater?.(v.cx, v.cy, Math.min(2.2, 0.5 + spd / 300), { scorch: true });
         if (credit) score += s1 + s2;
         if (seg.destroyed && dmgSeg > hpBefore * 1.3) {
           const keep = Math.sqrt(Math.max(0.1, 1 - hpBefore / dmgSeg));

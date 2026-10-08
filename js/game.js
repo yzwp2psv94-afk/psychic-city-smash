@@ -900,6 +900,7 @@ class Game {
   _powerCtx() {
     const c = this._pctx || (this._pctx = {});
     c.world = this.world; c.vehicles = this.vehicles; c.npcs = this.npcs; c.rival = this.rival;
+    c.ragdolls = this.ragdolls;
     c.aimX = this.aim.x; c.aimY = this.aim.y; c.aimZ = this.aim.z;
     c.player = this.player; c.drivenCar = this.drivenCar; c.camMode = this.camMode;
     c.energy = this.player.energy; c.driving = !!this.drivenCar;
@@ -1344,10 +1345,13 @@ class Game {
 
     // Ragdolls → integrar como escombro (misma física)
     if (this.ragdolls) {
+      const heldParts = new Set();
+      for (const r of this.ragdolls.active) if (r.held) for (const p of r.parts) heldParts.add(p);
       for (const d of this.ragdolls.parts) {
-        if (!d.alive || d.grabbed) continue;
+        if (!d.alive || d.grabbed || heldParts.has(d)) continue;
         stepBody(d, dt, world.bounds);
       }
+      this.ragdolls.playLandSounds?.();
     }
     // Escombros
     for (const d of world.debris) {

@@ -1,4 +1,4 @@
-# Psychic City Smash · v6 (3D)
+# Psychic City Smash · v7 (3D)
 
 Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Desde la v4.3 usa **assets CC0** (autos .glb, texturas, decals y cielo HDRI, en `assets/`) que se cargan en segundo plano; si alguno falla, el juego sigue con la versión procedural (canvas).
 
@@ -124,6 +124,12 @@ En el menú principal:
   - Persisten con un tope por calidad: 26 / 16 / 9.
   - **Autos (incluso estacionados o chatarra) y el jugador ruedan hacia adentro** y se inclinan con la pendiente.
 - **Optimizado para móvil**: todo instanciado y reutilizado (sin crear objetos por cuadro), decals limitados por calidad (180 / 120 / 70) y mallas de cráter más simples en calidad baja.
+
+## Impacto local y cortes visibles (v7)
+
+- **City Smash local**: un auto/meteorito abre un **cráter profundo** con escombro y hollín; daña solo la **fachada más cercana** (~1–2 manzanas). Sin colapso en cadena del mapa streameado. Tope de daño/salpicadura/explosión y presupuesto por cuerpo. El % es de la ventana activa.
+- **Corte visible**: al partir, cara emisiva brillante en el tocón y en la mitad que cae (edificios, árboles, autos). Fuerza controla grosor/velocidad.
+- **Maniquíes de choque**: articulaciones visibles (bolas en cuello, hombros, codos, caderas, rodillas). TK → cuelgan y se balancean; al lanzar, tumban. El láser **corta en una articulación**: la pieza cae y el muñón queda (sin gore, modelos propios). SFX: bodyThud / limbPop / laserSlice / ragdollClatter / bounce.
 
 ## Láser, ragdolls y ciudad infinita (v6)
 

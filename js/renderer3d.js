@@ -515,12 +515,19 @@ export class Renderer3D {
     g.add(this.debrisMesh);
     // v6: planos de corte del láser (emisivos) + piezas de ragdoll
     const cutMat = new THREE.MeshStandardMaterial({
-      color: 0xffb060, emissive: 0xff6a20, emissiveIntensity: 2.2,
-      transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide,
+      color: 0xffc070, emissive: 0xff8028, emissiveIntensity: 3.0,
+      transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide,
     });
     this.cutMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.08, 1), cutMat, 28);
     this.cutMesh.count = 0; this.cutMesh.frustumCulled = false; this.cutMesh.renderOrder = 5;
     this.cutMesh.userData.ownMat = true; g.add(this.cutMesh);
+    const faceMat = new THREE.MeshStandardMaterial({
+      color: 0xffcc66, emissive: 0xff7a20, emissiveIntensity: 3.6,
+      transparent: true, opacity: 0.98, depthWrite: false, side: THREE.DoubleSide, roughness: 0.25, metalness: 0.15,
+    });
+    this.cutFaceMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), faceMat, 48);
+    this.cutFaceMesh.count = 0; this.cutFaceMesh.frustumCulled = false; this.cutFaceMesh.renderOrder = 6;
+    this.cutFaceMesh.userData.ownMat = true; g.add(this.cutFaceMesh);
     const ragMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05 });
     this.ragdollMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), ragMat, 64);
     this.ragdollMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -528,6 +535,17 @@ export class Renderer3D {
     this.ragdollMesh.userData.ownMat = true;
     this.ragdollMesh.setColorAt(0, new THREE.Color(0x888888)); // crea instanceColor
     g.add(this.ragdollMesh);
+    // Articulaciones visibles (bolas de maniquí de choque)
+    const jointMat = new THREE.MeshStandardMaterial({
+      color: 0xd0d0d0, emissive: 0x333333, emissiveIntensity: 0.15,
+      roughness: 0.35, metalness: 0.55,
+    });
+    this.jointMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), jointMat, 80);
+    this.jointMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.jointMesh.castShadow = true; this.jointMesh.count = 0; this.jointMesh.frustumCulled = false;
+    this.jointMesh.userData.ownMat = true;
+    this.jointMesh.setColorAt(0, new THREE.Color(0xd0d0d0));
+    g.add(this.jointMesh);
     const chunkMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.02, flatShading: true });
     this.chunkMesh = new THREE.InstancedMesh(makeChunkGeometry(3), chunkMat, MAX_DEBRIS + 120);
     this.chunkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1051,32 +1069,86 @@ export class Renderer3D {
 
   _syncCutPlanes(world) {
     const mesh = this.cutMesh;
-    if (!mesh) return;
-    const list = world.cutPlanes || [];
-    let n = 0;
-    for (const c of list) {
-      if (n >= mesh.instanceMatrix.count) break;
-      const fade = Math.max(0.15, c.life / (c.maxLife || 1));
-      _p.set(c.x * S, c.z * S, c.y * S);
-      // Orientar el plano: por defecto horizontal; si hay nx/ny, vertical a lo largo del corte
-      if (c.nx || c.ny) {
-        const ang = Math.atan2(c.nx || 0, c.ny || 1);
-        _q.setFromAxisAngle(_v.set(0, 1, 0), ang);
-        _q.multiply(new THREE.Quaternion().setFromAxisAngle(_v.set(1, 0, 0), Math.PI / 2));
-      } else {
-        _q.identity();
+    if (mesh) {
+      const list = world.cutPlanes || [];
+      let n = 0;
+      for (const c of list) {
+        if (n >= mesh.instanceMatrix.count) break;
+        const fade = Math.max(0.15, c.life / (c.maxLife || 1));
+        _p.set(c.x * S, c.z * S, c.y * S);
+        if (c.nx || c.ny) {
+          const ang = Math.atan2(c.nx || 0, c.ny || 1);
+          _q.setFromAxisAngle(_v.set(0, 1, 0), ang);
+          _q.multiply(new THREE.Quaternion().setFromAxisAngle(_v.set(1, 0, 0), Math.PI / 2));
+        } else {
+          _q.identity();
+        }
+        // Grosor visible (~20–40 cm) para que la rebanada se lea en móvil
+        _m.compose(_p, _q, _s.set((c.w || 16) * S, 0.18 + 0.22 * fade, Math.max(0.45, (c.h || 4) * S)));
+        mesh.setMatrixAt(n++, _m);
       }
-      _m.compose(_p, _q, _s.set((c.w || 16) * S, 0.05 + 0.08 * fade, Math.max(0.35, (c.h || 4) * S)));
-      mesh.setMatrixAt(n++, _m);
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.material) {
+        mesh.material.opacity = 0.7 + 0.3 * Math.sin(performance.now() * 0.02);
+        mesh.material.emissiveIntensity = 3.2;
+      }
     }
-    mesh.count = n;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.material) mesh.material.opacity = 0.55 + 0.35 * Math.sin(performance.now() * 0.02);
+    // Caras de corte (planos emisivos horizontales = “rebanada” visible)
+    const fm = this.cutFaceMesh;
+    if (fm) {
+      const faces = world.cutFaces || [];
+      let n = 0;
+      const pulse = 0.75 + 0.25 * Math.sin(performance.now() * 0.012);
+      for (const c of faces) {
+        if (n >= fm.instanceMatrix.count) break;
+        const fade = Math.max(0.2, c.life / (c.maxLife || 1));
+        _p.set(c.x * S, c.z * S + 0.02, c.y * S);
+        _q.setFromAxisAngle(_v.set(1, 0, 0), -Math.PI / 2);
+        _m.compose(_p, _q, _s.set((c.w || 16) * S * 0.1 * 10 / 10, (c.d || 16) * S, 1));
+        // PlaneGeometry is XY; after rotateX(-90) it lies on XZ. scale x=width, y=depth in local before rot → after rot y becomes world depth... 
+        // Box-free: scale X and Y of plane (Y becomes -Z after rot). Use: scale(w, d, 1) then rotateX.
+        _m.compose(_p, _q, _s.set((c.w || 20) * S, (c.d || 20) * S, 1));
+        fm.setMatrixAt(n++, _m);
+      }
+      // Tocones: segmentos con _cutFaceZ (cara superior del corte)
+      if (this.world?.segments) {
+        for (const seg of this.world.segments) {
+          if (!seg._cutFaceZ || (seg._cutFaceT || 0) <= 0 || n >= fm.instanceMatrix.count) continue;
+          _p.set(seg.cx * S, seg._cutFaceZ * S + 0.04, seg.cy * S);
+          _q.setFromAxisAngle(_v.set(1, 0, 0), -Math.PI / 2);
+          _m.compose(_p, _q, _s.set(seg.w * S * 1.05, seg.h * S * 1.05, 1));
+          fm.setMatrixAt(n++, _m);
+        }
+      }
+      // también caras en losas con cutGlow
+      if (this.world?.debris) {
+        for (const d of this.world.debris) {
+          if (!d.alive || !d.data?.cutGlow || n >= fm.instanceMatrix.count) continue;
+          _p.set(d.cx * S, (d.liftZ + d.th * 0.5) * S + 0.03, d.cy * S);
+          _q.setFromEuler(new THREE.Euler(d.tumbleX || 0, -d.angle, d.tumbleZ || 0));
+          _q.multiply(new THREE.Quaternion().setFromAxisAngle(_v.set(1, 0, 0), -Math.PI / 2));
+          _m.compose(_p, _q, _s.set(d.w * S * 0.95, d.h * S * 0.95, 1));
+          fm.setMatrixAt(n++, _m);
+        }
+      }
+      fm.count = n;
+      fm.instanceMatrix.needsUpdate = true;
+      if (fm.material) {
+        fm.material.emissiveIntensity = 3.4 * pulse;
+        fm.material.opacity = 0.75 + 0.25 * pulse;
+      }
+    }
   }
 
   _syncRagdolls(game) {
     const mesh = this.ragdollMesh;
-    if (!mesh || !game.ragdolls) { if (mesh) mesh.count = 0; return; }
+    const jm = this.jointMesh;
+    if (!mesh || !game.ragdolls) {
+      if (mesh) mesh.count = 0;
+      if (jm) jm.count = 0;
+      return;
+    }
     let n = 0;
     for (const d of game.ragdolls.parts) {
       if (!d.alive || n >= mesh.instanceMatrix.count) continue;
@@ -1091,6 +1163,25 @@ export class Renderer3D {
     mesh.count = n;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+    // Bolas de articulación (maniquí de choque)
+    if (jm) {
+      let jn = 0;
+      const joints = game.ragdolls.joints || [];
+      for (const j of joints) {
+        if (jn >= jm.instanceMatrix.count) break;
+        _p.set(j.x * S, j.z * S, j.y * S);
+        _q.identity();
+        const r = Math.max(0.12, (j.r || 2) * S);
+        _m.compose(_p, _q, _s.set(r, r, r));
+        jm.setMatrixAt(jn, _m);
+        jm.setColorAt?.(jn, _c.setHex(colHex(j.color || '#d0d0d0')));
+        jn++;
+      }
+      jm.count = jn;
+      jm.instanceMatrix.needsUpdate = true;
+      if (jm.instanceColor) jm.instanceColor.needsUpdate = true;
+    }
   }
 
   _syncRubble(world) {

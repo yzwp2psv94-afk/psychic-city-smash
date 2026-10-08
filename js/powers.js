@@ -92,14 +92,22 @@ export class PowersSystem {
 
     if (power.id === 'tk') {
       const cands = vehicles.filter(v => v.alive && v !== ctx.drivenCar && !v.driven);
-      const target = world.findGrabbableNear(mx, my, driving ? 80 : 100, cands);
+      const rad = driving ? 80 : 100;
+      let target = world.findGrabbableNear(mx, my, rad, cands);
+      // v7: NPCs → ragdoll colgante (maniquí flojo)
+      if (!target && ctx.ragdolls && ctx.npcs) {
+        target = ctx.ragdolls.tryGrabNpc(ctx.npcs, mx, my, rad);
+      }
       if (target) {
         this._grab(target);
         this.charging = true; this.charge = 0; this.chargeKind = 'tk';
         sfx.grab();
-        return { energy: 2, tip: target.kind === 'vehicle' ? 'Auto agarrado · mantén para cargar · suelta para lanzar' : 'Agarrado · mantén para cargar · suelta para lanzar' };
+        const tip = target.kind === 'vehicle' ? 'Auto agarrado · mantén para cargar · suelta para lanzar'
+          : target.kind === 'ragdoll' ? 'Maniquí flojo · balancea · suelta para lanzar'
+          : 'Agarrado · mantén para cargar · suelta para lanzar';
+        return { energy: 2, tip };
       }
-      return { energy: 0, tip: 'Nada que agarrar cerca · apunta a escombros, piezas o autos' };
+      return { energy: 0, tip: 'Nada que agarrar cerca · apunta a escombros, piezas, autos o peatones' };
     }
 
     if (power.id === 'shield') {
@@ -188,6 +196,7 @@ export class PowersSystem {
       g.grabbed = false;
       const speed = this.throwSpeed();
       this._launchToward(g, mx, my, ctx.aimZ || 0, speed, fallback);
+      if (g.kind === 'ragdoll' && ctx.ragdolls) ctx.ragdolls.releaseHeld(g, { vx: g.vx, vy: g.vy, vz: g.vz });
       const kmh = Math.round(speed * 0.36);
       this.lastThrowKmh = kmh;
       const cost = 3 + 16 * this.force * this.charge * (g.kind === 'vehicle' ? 1.4 : 1);
@@ -353,6 +362,12 @@ export class PowersSystem {
         if (g.kind === 'vehicle') {
           g.angle += (Math.atan2(dy, dx) - g.angle) * 0;
           g.roll *= 0.95; g.pitch *= 0.95;
+        } else if (g.kind === 'ragdoll') {
+          // maniquí flojo: torso se balancea al colgar
+          g.tumbleX = Math.sin(performance.now() * 0.006) * 0.55;
+          g.tumbleZ = Math.cos(performance.now() * 0.005) * 0.35;
+          g.angle += dt * 0.4;
+          g.spin = Math.sin(performance.now() * 0.004) * 1.2;
         } else {
           g.tumbleX += dt * 0.8; g.angle += dt * 0.6;
         }
