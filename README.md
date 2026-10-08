@@ -129,6 +129,7 @@ En el menú principal:
 
 - **City Smash local**: un auto/meteorito abre un **cráter profundo** con escombro y hollín; daña solo la **fachada más cercana** (~1–2 manzanas). Sin colapso en cadena del mapa streameado. Tope de daño/salpicadura/explosión y presupuesto por cuerpo. El % es de la ventana activa.
 - **Corte visible**: al partir, cara emisiva brillante en el tocón y en la mitad que cae (edificios, árboles, autos). Fuerza controla grosor/velocidad.
+- **Maniquí .glb (v8)**: `assets/models/dummy.glb` (CC0, ~4k tris). Sustituye las cajas del ragdoll; si falla la carga, quedan las cajas.
 - **Maniquíes de choque**: articulaciones visibles (bolas en cuello, hombros, codos, caderas, rodillas). TK → cuelgan y se balancean; al lanzar, tumban. El láser **corta en una articulación**: la pieza cae y el muñón queda (sin gore, modelos propios). SFX: bodyThud / limbPop / laserSlice / ragdollClatter / bounce.
 
 ## Láser, ragdolls y ciudad infinita (v6)

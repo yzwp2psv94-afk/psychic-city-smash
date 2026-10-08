@@ -14,6 +14,7 @@ import { MAX_PARTICLES } from './physics.js';
 import { POWERS } from './powers.js';
 import { Destruction3D, makeDustTexture } from './destruction3d.js';
 import { GlbCarModel, hasCarGlb, registerCarGlb } from './glbcar.js';
+import { registerDummyGlb, hasDummyGlb, DummyPool } from './glbdummy.js';
 import { markFacadeGeometry, setFacadeLayers, patchFacadeMaterial, patchGroundMaterial, patchWorldMapped, patchCrackDecals, patchCraterDecals, patchSkyDome } from './assetfx.js';
 
 const S = 0.1;
@@ -620,6 +621,14 @@ export class Renderer3D {
     let cars = 0;
     for (const [name, scene] of Object.entries(a.cars || {})) { try { registerCarGlb(name, scene); cars++; } catch (e) { console.warn('glb', name, e); } }
     if (cars) { for (const [, cm] of this.carModels) cm.removeFrom(this.scene); this.carModels.clear(); }
+    // maniquí .glb
+    if (a.dummy) {
+      try {
+        if (registerDummyGlb(a.dummy)) {
+          this.dummyPool = new DummyPool(this.scene, 12);
+        }
+      } catch (e) { console.warn('dummy glb:', e); }
+    }
     // cielo + reflejos
     if (a.sky?.tex) {
       try {
@@ -1142,6 +1151,15 @@ export class Renderer3D {
   }
 
   _syncRagdolls(game) {
+    // Preferir dummy.glb (pool con geo compartida); si no hay, cajas + bolas
+    if (this.dummyPool && hasDummyGlb() && game.ragdolls) {
+      const ok = this.dummyPool.syncAll(game.ragdolls);
+      if (ok) {
+        if (this.ragdollMesh) this.ragdollMesh.count = 0;
+        if (this.jointMesh) this.jointMesh.count = 0;
+        return;
+      }
+    }
     const mesh = this.ragdollMesh;
     const jm = this.jointMesh;
     if (!mesh || !game.ragdolls) {
@@ -1164,7 +1182,6 @@ export class Renderer3D {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
-    // Bolas de articulación (maniquí de choque)
     if (jm) {
       let jn = 0;
       const joints = game.ragdolls.joints || [];

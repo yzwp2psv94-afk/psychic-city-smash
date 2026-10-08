@@ -25,6 +25,11 @@ Detail added on top of those models (grilles, window frames, hubcaps, and the li
 | pickup.glb | Car Kit – truck | https://kenney.nl/assets/car-kit | Kenney (www.kenney.nl) | CC0 |
 | kenney_car_debris.glb | Car Kit – debris-* pieces (bumper, door, door-window, tire, plate-a/b, plate-small-a, spoiler-a, drivetrain, bolt, nut) | https://kenney.nl/assets/car-kit | Kenney (www.kenney.nl) | CC0 |
 
+## Characters (`models/`)
+| File | Source | Author | License |
+|---|---|---|---|
+| dummy.glb, dummy_preview.png | Original procedural crash-test dummy, generated for this project from three.js primitive geometry (capsules, spheres, a lathe) and written with gltf-transform. No third-party model or texture. | Psychic City Smash project | CC0 |
+
 ## Surface textures (`textures/`)
 | Files (`*_albedo/_normal/_rough.webp`) | Source asset | Source URL | Author | License |
 |---|---|---|---|---|

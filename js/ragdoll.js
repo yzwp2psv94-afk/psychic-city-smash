@@ -24,16 +24,17 @@ export const RAGDOLL_PART_CAP = { high: 64, medium: 44, low: 28 };
  * joint: radio de la bola visible.
  */
 const PART_DEFS = [
-  { id: 'torso', parent: null, w: 10, h: 7, th: 14, mass: 2.6, color: null, oz: 16, anchor: { x: 0, y: 0, z: 0 }, joint: 0 },
-  { id: 'head', parent: 'torso', w: 6.5, h: 6.5, th: 6.5, mass: 0.7, color: '#e8c4a0', oz: 26, anchor: { x: 0, y: 0, z: 11 }, joint: 2.2 },
-  { id: 'armLU', parent: 'torso', w: 3.4, h: 3.4, th: 7, mass: 0.4, color: null, oz: 18, anchor: { x: -8, y: 0, z: 5 }, joint: 2.0 },
-  { id: 'armLL', parent: 'armLU', w: 3.0, h: 3.0, th: 7, mass: 0.35, color: null, oz: 12, anchor: { x: 0, y: 0, z: -7 }, joint: 1.7 },
-  { id: 'armRU', parent: 'torso', w: 3.4, h: 3.4, th: 7, mass: 0.4, color: null, oz: 18, anchor: { x: 8, y: 0, z: 5 }, joint: 2.0 },
-  { id: 'armRL', parent: 'armRU', w: 3.0, h: 3.0, th: 7, mass: 0.35, color: null, oz: 12, anchor: { x: 0, y: 0, z: -7 }, joint: 1.7 },
-  { id: 'legLU', parent: 'torso', w: 4.2, h: 4.2, th: 8, mass: 0.7, color: null, oz: 8, anchor: { x: -3, y: 0, z: -9 }, joint: 2.1 },
-  { id: 'legLL', parent: 'legLU', w: 3.8, h: 3.8, th: 8, mass: 0.55, color: null, oz: 2, anchor: { x: 0, y: 0, z: -8 }, joint: 1.8 },
-  { id: 'legRU', parent: 'torso', w: 4.2, h: 4.2, th: 8, mass: 0.7, color: null, oz: 8, anchor: { x: 3, y: 0, z: -9 }, joint: 2.1 },
-  { id: 'legRL', parent: 'legRU', w: 3.8, h: 3.8, th: 8, mass: 0.55, color: null, oz: 2, anchor: { x: 0, y: 0, z: -8 }, joint: 1.8 },
+  // Escala dummy: 1 m = 10 px. Posición del body = pivote proximal (como el GLB).
+  { id: 'torso', parent: null, w: 8, h: 6, th: 12, mass: 2.6, color: null, oz: 9.5, anchor: { x: 0, y: 0, z: 0 }, joint: 0 },
+  { id: 'head', parent: 'torso', w: 5, h: 5, th: 5.5, mass: 0.7, color: '#e8c4a0', oz: 15, anchor: { x: 0, y: 0, z: 5.5 }, joint: 2.0 },
+  { id: 'armLU', parent: 'torso', w: 3, h: 3, th: 5.5, mass: 0.4, color: null, oz: 14.3, anchor: { x: -2.15, y: 0, z: 4.8 }, joint: 1.8 },
+  { id: 'armLL', parent: 'armLU', w: 2.8, h: 2.8, th: 6, mass: 0.35, color: null, oz: 14.3, anchor: { x: -2.85, y: 0, z: 0 }, joint: 1.5 },
+  { id: 'armRU', parent: 'torso', w: 3, h: 3, th: 5.5, mass: 0.4, color: null, oz: 14.3, anchor: { x: 2.15, y: 0, z: 4.8 }, joint: 1.8 },
+  { id: 'armRL', parent: 'armRU', w: 2.8, h: 2.8, th: 6, mass: 0.35, color: null, oz: 14.3, anchor: { x: 2.85, y: 0, z: 0 }, joint: 1.5 },
+  { id: 'legLU', parent: 'torso', w: 3.5, h: 3.5, th: 7, mass: 0.7, color: null, oz: 9.2, anchor: { x: -1.0, y: 0, z: -0.3 }, joint: 2.0 },
+  { id: 'legLL', parent: 'legLU', w: 3.2, h: 3.2, th: 7, mass: 0.55, color: null, oz: 5.1, anchor: { x: 0, y: 0, z: -4.1 }, joint: 1.6 },
+  { id: 'legRU', parent: 'torso', w: 3.5, h: 3.5, th: 7, mass: 0.7, color: null, oz: 9.2, anchor: { x: 1.0, y: 0, z: -0.3 }, joint: 2.0 },
+  { id: 'legRL', parent: 'legRU', w: 3.2, h: 3.2, th: 7, mass: 0.55, color: null, oz: 5.1, anchor: { x: 0, y: 0, z: -4.1 }, joint: 1.6 },
 ];
 
 /** Qué hijos se sueltan al cortar cada articulación */
@@ -105,16 +106,29 @@ export class RagdollSystem {
     const defs = cut
       ? PART_DEFS.filter(d => d.id === 'torso' || d.id === 'head' || d.id.startsWith('leg'))
       : PART_DEFS;
+    // Colocar cada body en su pivote proximal (coords mundo, como el GLB)
+    const worldPos = { torso: { x: baseX, y: baseY, z: (PART_DEFS[0].oz) + baseZ } };
+    for (const def of defs) {
+      if (def.id === 'torso') continue;
+      const parent = def.parent ? worldPos[def.parent] : worldPos.torso;
+      const a = def.anchor || { x: 0, y: 0, z: 0 };
+      worldPos[def.id] = {
+        x: parent.x + a.x,
+        y: parent.y + (a.y || 0),
+        z: parent.z + a.z,
+      };
+    }
     for (const def of defs) {
       const col = colorFor(def, shirt, pants);
-      const jx = held ? 0 : (Math.random() - 0.5) * 5;
-      const jy = held ? 0 : (Math.random() - 0.5) * 5;
+      const jx = held ? 0 : (Math.random() - 0.5) * 4;
+      const jy = held ? 0 : (Math.random() - 0.5) * 4;
       const cutKick = cut ? (def.id.startsWith('leg') ? -1 : def.id === 'head' ? 1 : 0) : 0;
+      const wp = worldPos[def.id] || { x: baseX, y: baseY, z: def.oz + baseZ };
       const b = takeBody({
-        x: baseX - def.w / 2 + jx + (def.anchor?.x || 0) * 0.25,
-        y: baseY - def.h / 2 + jy,
+        x: wp.x - def.w / 2 + jx,
+        y: wp.y - def.h / 2 + jy,
         w: def.w, h: def.h, th: def.th,
-        z: def.oz + baseZ,
+        z: Math.max(0.5, wp.z),
         vx: held ? 0 : vx * (0.65 + Math.random() * 0.5) + jx * 2 + cutKick * (40 + Math.random() * 40),
         vy: held ? 0 : vy * (0.65 + Math.random() * 0.5) + jy * 2,
         vz: held ? 0 : vz * (0.55 + Math.random() * 0.7) + (cut && def.id === 'head' ? 55 : 0),
@@ -125,7 +139,7 @@ export class RagdollSystem {
         playerTouch: credit ? 2 : 0,
         data: {
           ragdoll: true, part: def.id, parent: def.parent, anchor: def.anchor,
-          jointR: def.joint, cut, shirt, pants,
+          jointR: def.joint, cut, shirt, pants, glb: true,
         },
       });
       byId[def.id] = b;

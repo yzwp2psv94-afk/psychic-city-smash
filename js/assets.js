@@ -5,6 +5,7 @@ import * as THREE from 'three';
 const BASE = './assets/';
 const T = BASE + 'textures/', D = T + 'destruction/';
 export const CAR_FILES = ['sedan', 'sedan_b', 'taxi', 'police', 'suv', 'sports', 'sports_b', 'pickup'];
+const DUMMY_KB = 68;
 export const FACADES = ['facade_brick_dark', 'facade_brick_windows', 'facade_concrete_office', 'facade_glass_grid'];
 // ventanas por mosaico [columnas, pisos] (medido en las texturas) — sirve para encender ventanas una por una
 export const FACADE_GRID = [[6, 7], [6, 6], [6, 6], [14, 8]];
@@ -96,7 +97,7 @@ function makeArray(imgs, size, srgb, aniso) {
  */
 export async function loadAssets({ quality = 'medium', onProgress = () => {} } = {}) {
   const P = plan(quality);
-  const out = { quality, cars: {}, tex: {}, avg: {}, sky: null, errors: [] };
+  const out = { quality, cars: {}, dummy: null, tex: {}, avg: {}, sky: null, errors: [] };
   const jobs = [];
   const job = (w, label, fn) => jobs.push({ w, label, fn });
 
@@ -110,6 +111,12 @@ export async function loadAssets({ quality = 'medium', onProgress = () => {} } =
     const L = await getGltf();
     const g = await L.loadAsync(BASE + 'models/vehicles/' + n + '.glb');
     out.cars[n] = g.scene;
+  });
+  // —— maniquí de choque ——
+  job(DUMMY_KB, 'dummy.glb', async () => {
+    const L = await getGltf();
+    const g = await L.loadAsync(BASE + 'models/dummy.glb');
+    out.dummy = g.scene;
   });
 
   // —— fachadas (textura array) ——

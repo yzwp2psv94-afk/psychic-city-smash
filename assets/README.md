@@ -37,6 +37,37 @@ On top of the split parts, each Quaternius car now also has (as **children of th
 Side mirrors and door handles were tried and left off: anything proud of the body widens the bounding box, and the game scales the whole car from that box. The Kenney pickup only got the light split (taken from its palette colors) and both plates. Its stylized shell has no separate window or rim faces, so no grille, frames or hubcaps.
  Doors/hood/bumpers were cut from the original single body mesh by region (they are not hand-modeled panels), so cut edges are a bit jagged.
 
+## Crash-test dummy (`models/dummy.glb`)
+Original procedural model (built with three.js geometry + gltf-transform for this project), CC0. 68 KB, **3,996 triangles**, no Draco, Float32 positions, no textures. Preview: `dummy_preview.png` (T-pose, a posed bend, exploded).
+
+- **Pose:** T-pose, arms straight out along ±X. Units meters, +Y up, **+Z forward** (the face looks down +Z), +X = the dummy's left. Origin at the center between the feet, on the ground. Height 1.79 m, arm span 1.81 m.
+- **Hierarchy:** flat. Every part is a direct child of the root node `dummy`. Each node's origin is its **proximal joint**, so rotating the node bends the segment naturally. Because it is flat, a ragdoll has to move a child segment to its parent's distal joint itself (or reparent with `Object3D.attach` if you want a chain).
+- **Materials:** `dummy_body` (yellow-orange, roughness 0.32), `dummy_joint` (dark brown balls, waist belt and chest stripes), `dummy_eye_white`, `dummy_eye_pupil` (googly pupils and the black quadrant targets on the sides of the head).
+
+| Node | Pivot (world, m) | Distal joint | Triangles |
+|---|---|---|---|
+| torso | (0, 0.95, 0) pelvis | neck / shoulders / hips | 420 |
+| head | (0, 1.50, 0) neck | – | 560 |
+| upperArm_L / _R | (±0.215, 1.43, 0) shoulder | elbow (±0.50, 1.43, 0), along ±X | 180 |
+| lowerArm_L / _R (incl. mitten hand) | (±0.50, 1.43, 0) elbow | wrist (±0.76, 1.43, 0), hand ends ≈ ±0.90 | 368 |
+| upperLeg_L / _R | (±0.10, 0.92, 0) hip | knee (±0.10, 0.51, 0), along −Y | 180 |
+| lowerLeg_L / _R (incl. foot, toes toward +Z) | (±0.10, 0.51, 0) knee | ankle (±0.10, 0.10, 0) | 260 |
+| joint_neck | (0, 1.50, 0) | r 0.048 | 80 |
+| joint_shoulder_L / _R | (±0.215, 1.43, 0) | r 0.068 | 80 |
+| joint_elbow_L / _R | (±0.50, 1.43, 0) | r 0.056 | 80 |
+| joint_wrist_L / _R | (±0.76, 1.43, 0) | r 0.042 | 80 |
+| joint_hip_L / _R | (±0.10, 0.92, 0) | r 0.082 | 80 |
+| joint_knee_L / _R | (±0.10, 0.51, 0) | r 0.070 | 80 |
+| joint_ankle_L / _R | (±0.10, 0.10, 0) | r 0.052 | 80 |
+
+Joint balls are spheres centered on their node origin, so they look the same at any rotation; just keep each ball's position on its joint. Suggested ragdoll links: torso→head (neck), torso→upperArm (shoulder), upperArm→lowerArm (elbow), torso→upperLeg (hip), upperLeg→lowerLeg (knee).
+
+```js
+const dummy = (await new GLTFLoader().loadAsync('./assets/models/dummy.glb')).scene.getObjectByName('dummy');
+const part = (n) => dummy.getObjectByName(n);
+part('lowerArm_L').rotation.y = -1.2;   // bend at the elbow (pivot is the elbow)
+```
+
 ## Surface textures (`textures/`) — tileable, 1K albedo + 1K normal (OpenGL/+Y, as three.js expects) + 512 roughness
 | Set | Files | Sizes |
 |---|---|---|

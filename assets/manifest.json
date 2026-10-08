@@ -132,7 +132,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): NormalCar1.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/sedan_b.glb",
@@ -261,7 +261,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): NormalCar2.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/taxi.glb",
@@ -389,7 +389,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): Taxi.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/police.glb",
@@ -519,7 +519,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): Cop.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/suv.glb",
@@ -647,7 +647,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): SUV.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/sports.glb",
@@ -759,7 +759,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): SportsCar.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/sports_b.glb",
@@ -870,7 +870,7 @@
     "tire"
    ],
    "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): SportsCar2.obj",
-   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1–2 cm from the plates)."
   },
   {
    "file": "models/vehicles/pickup.glb",
@@ -975,7 +975,7 @@
     "kenney_colormap"
    ],
    "source": "Kenney Car Kit: truck.glb",
-   "detail": "v2 (limited): headlight_L/R and taillight_L/R separated out of the Kenney palette, plus front and rear plates. No grille, mirrors or hubcaps \u2014 the stylized mesh has no separate window or rim faces to build them on."
+   "detail": "v2 (limited): headlight_L/R and taillight_L/R separated out of the Kenney palette, plus front and rear plates. No grille, mirrors or hubcaps — the stylized mesh has no separate window or rim faces to build them on."
   }
  ],
  "debris": {
@@ -1326,5 +1326,659 @@
    ],
    "note": "UV rects in three.js UV space (v=0 bottom, texture.flipY=true). 4 horizontal crack strips (row 2 contains a strip plus smaller pieces)."
   }
- }
+ },
+ "characters": [
+  {
+   "file": "models/dummy.glb",
+   "bytes": 68148,
+   "triangles": 3996,
+   "description": "Original procedural crash-test dummy (CC0). Flat hierarchy, T-pose.",
+   "pose": "T-pose (arms straight out along ±X)",
+   "units": "meters",
+   "up": "+Y",
+   "forward": "+Z (face)",
+   "left": "+X",
+   "origin": "feet center on ground",
+   "size_m": {
+    "width_armspan": 1.806,
+    "height": 1.794,
+    "depth": 0.296
+   },
+   "hierarchy": "flat: every part is a direct child of root node \"dummy\"; node origin = proximal joint (rotate the node to bend)",
+   "materials": [
+    "dummy_body",
+    "dummy_joint",
+    "dummy_eye_white",
+    "dummy_eye_pupil"
+   ],
+   "joints_world": {
+    "neck": [
+     0,
+     1.5,
+     0
+    ],
+    "shoulder_L": [
+     0.215,
+     1.43,
+     0
+    ],
+    "shoulder_R": [
+     -0.215,
+     1.43,
+     0
+    ],
+    "elbow_L": [
+     0.5,
+     1.43,
+     0
+    ],
+    "elbow_R": [
+     -0.5,
+     1.43,
+     0
+    ],
+    "wrist_L": [
+     0.76,
+     1.43,
+     0
+    ],
+    "wrist_R": [
+     -0.76,
+     1.43,
+     0
+    ],
+    "hip_L": [
+     0.1,
+     0.92,
+     0
+    ],
+    "hip_R": [
+     -0.1,
+     0.92,
+     0
+    ],
+    "knee_L": [
+     0.1,
+     0.51,
+     0
+    ],
+    "knee_R": [
+     -0.1,
+     0.51,
+     0
+    ],
+    "ankle_L": [
+     0.1,
+     0.1,
+     0
+    ],
+    "ankle_R": [
+     -0.1,
+     0.1,
+     0
+    ],
+    "pelvis": [
+     0,
+     0.95,
+     0
+    ]
+   },
+   "parts": {
+    "torso": {
+     "pivot": [
+      0,
+      0.95,
+      0
+     ],
+     "triangles": 420,
+     "localBounds": {
+      "min": [
+       -0.195,
+       -0.08,
+       -0.121
+      ],
+      "max": [
+       0.195,
+       0.555,
+       0.13
+      ]
+     },
+     "materials": [
+      "dummy_body",
+      "dummy_joint"
+     ],
+     "distalJoint": "joint_neck"
+    },
+    "head": {
+     "pivot": [
+      0,
+      1.5,
+      0
+     ],
+     "triangles": 560,
+     "localBounds": {
+      "min": [
+       -0.116,
+       0.01,
+       -0.108
+      ],
+      "max": [
+       0.116,
+       0.294,
+       0.125
+      ]
+     },
+     "materials": [
+      "dummy_body",
+      "dummy_eye_white",
+      "dummy_eye_pupil"
+     ]
+    },
+    "upperArm_L": {
+     "pivot": [
+      0.215,
+      1.43,
+      0
+     ],
+     "triangles": 180,
+     "localBounds": {
+      "min": [
+       0.055,
+       -0.049,
+       -0.052
+      ],
+      "max": [
+       0.284,
+       0.049,
+       0.052
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_elbow_L"
+    },
+    "lowerArm_L": {
+     "pivot": [
+      0.5,
+      1.43,
+      0
+     ],
+     "triangles": 368,
+     "localBounds": {
+      "min": [
+       0.05,
+       -0.043,
+       -0.045
+      ],
+      "max": [
+       0.403,
+       0.043,
+       0.109
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_wrist_L"
+    },
+    "upperArm_R": {
+     "pivot": [
+      -0.215,
+      1.43,
+      0
+     ],
+     "triangles": 180,
+     "localBounds": {
+      "min": [
+       -0.284,
+       -0.049,
+       -0.052
+      ],
+      "max": [
+       -0.055,
+       0.049,
+       0.052
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_elbow_R"
+    },
+    "lowerArm_R": {
+     "pivot": [
+      -0.5,
+      1.43,
+      0
+     ],
+     "triangles": 368,
+     "localBounds": {
+      "min": [
+       -0.403,
+       -0.043,
+       -0.045
+      ],
+      "max": [
+       -0.05,
+       0.043,
+       0.109
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_wrist_R"
+    },
+    "upperLeg_L": {
+     "pivot": [
+      0.1,
+      0.92,
+      0
+     ],
+     "triangles": 180,
+     "localBounds": {
+      "min": [
+       -0.071,
+       -0.385,
+       -0.075
+      ],
+      "max": [
+       0.071,
+       -0.065,
+       0.075
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_knee_L"
+    },
+    "lowerLeg_L": {
+     "pivot": [
+      0.1,
+      0.51,
+      0
+     ],
+     "triangles": 260,
+     "localBounds": {
+      "min": [
+       -0.057,
+       -0.51,
+       -0.065
+      ],
+      "max": [
+       0.057,
+       -0.055,
+       0.175
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_ankle_L"
+    },
+    "upperLeg_R": {
+     "pivot": [
+      -0.1,
+      0.92,
+      0
+     ],
+     "triangles": 180,
+     "localBounds": {
+      "min": [
+       -0.071,
+       -0.385,
+       -0.075
+      ],
+      "max": [
+       0.071,
+       -0.065,
+       0.075
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_knee_R"
+    },
+    "lowerLeg_R": {
+     "pivot": [
+      -0.1,
+      0.51,
+      0
+     ],
+     "triangles": 260,
+     "localBounds": {
+      "min": [
+       -0.057,
+       -0.51,
+       -0.065
+      ],
+      "max": [
+       0.057,
+       -0.055,
+       0.175
+      ]
+     },
+     "materials": [
+      "dummy_body"
+     ],
+     "distalJoint": "joint_ankle_R"
+    },
+    "joint_neck": {
+     "pivot": [
+      0,
+      1.5,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.048,
+       -0.048,
+       -0.048
+      ],
+      "max": [
+       0.048,
+       0.048,
+       0.048
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.048
+    },
+    "joint_shoulder_L": {
+     "pivot": [
+      0.215,
+      1.43,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.068,
+       -0.068,
+       -0.068
+      ],
+      "max": [
+       0.068,
+       0.068,
+       0.068
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.068
+    },
+    "joint_shoulder_R": {
+     "pivot": [
+      -0.215,
+      1.43,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.068,
+       -0.068,
+       -0.068
+      ],
+      "max": [
+       0.068,
+       0.068,
+       0.068
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.068
+    },
+    "joint_elbow_L": {
+     "pivot": [
+      0.5,
+      1.43,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.056,
+       -0.056,
+       -0.056
+      ],
+      "max": [
+       0.056,
+       0.056,
+       0.056
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.056
+    },
+    "joint_elbow_R": {
+     "pivot": [
+      -0.5,
+      1.43,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.056,
+       -0.056,
+       -0.056
+      ],
+      "max": [
+       0.056,
+       0.056,
+       0.056
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.056
+    },
+    "joint_wrist_L": {
+     "pivot": [
+      0.76,
+      1.43,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.042,
+       -0.042,
+       -0.042
+      ],
+      "max": [
+       0.042,
+       0.042,
+       0.042
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.042
+    },
+    "joint_wrist_R": {
+     "pivot": [
+      -0.76,
+      1.43,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.042,
+       -0.042,
+       -0.042
+      ],
+      "max": [
+       0.042,
+       0.042,
+       0.042
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.042
+    },
+    "joint_hip_L": {
+     "pivot": [
+      0.1,
+      0.92,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.082,
+       -0.082,
+       -0.082
+      ],
+      "max": [
+       0.082,
+       0.082,
+       0.082
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.082
+    },
+    "joint_hip_R": {
+     "pivot": [
+      -0.1,
+      0.92,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.082,
+       -0.082,
+       -0.082
+      ],
+      "max": [
+       0.082,
+       0.082,
+       0.082
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.082
+    },
+    "joint_knee_L": {
+     "pivot": [
+      0.1,
+      0.51,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.07,
+       -0.07,
+       -0.07
+      ],
+      "max": [
+       0.07,
+       0.07,
+       0.07
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.07
+    },
+    "joint_knee_R": {
+     "pivot": [
+      -0.1,
+      0.51,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.07,
+       -0.07,
+       -0.07
+      ],
+      "max": [
+       0.07,
+       0.07,
+       0.07
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.07
+    },
+    "joint_ankle_L": {
+     "pivot": [
+      0.1,
+      0.1,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.052,
+       -0.052,
+       -0.052
+      ],
+      "max": [
+       0.052,
+       0.052,
+       0.052
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.052
+    },
+    "joint_ankle_R": {
+     "pivot": [
+      -0.1,
+      0.1,
+      0
+     ],
+     "triangles": 80,
+     "localBounds": {
+      "min": [
+       -0.052,
+       -0.052,
+       -0.052
+      ],
+      "max": [
+       0.052,
+       0.052,
+       0.052
+      ]
+     },
+     "materials": [
+      "dummy_joint"
+     ],
+     "radius": 0.052
+    }
+   }
+  }
+ ]
 }
