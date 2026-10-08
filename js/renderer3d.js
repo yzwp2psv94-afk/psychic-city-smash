@@ -9,7 +9,7 @@ import {
   makeCityGround, makeFacadeAtlas, ATLAS, makeBackdropFacade, makeCrackTexture,
   makeCraterTexture, makeSoftSprite, makeGrassTile, makePuffSprite, makeBlobShadow,
 } from './textures.js';
-import { CarModel, mergeGeometries } from './carmodel.js';
+import { CarModel, WheelBatch, mergeGeometries, setCarEnvMap, setCarQuality, resetCarFrameBudget } from './carmodel.js';
 import { MAX_PARTICLES } from './physics.js';
 import { POWERS } from './powers.js';
 
@@ -86,12 +86,28 @@ export class Renderer3D {
     this._initStatic();
     this.worldGroup = null;
     this.carModels = new Map();
+    this.wheelBatch = new WheelBatch(this.scene);
     this.width = 1; this.height = 1;
+    this._loadCarEnv();
+  }
+
+  /** reflejos para pintura / vidrio / llantas (RoomEnvironment → PMREM, una vez) */
+  async _loadCarEnv() {
+    try {
+      const { RoomEnvironment } = await import('three/addons/environments/RoomEnvironment.js');
+      const pm = new THREE.PMREMGenerator(this.renderer);
+      const env = new RoomEnvironment();
+      const rt = pm.fromScene(env, 0.04);
+      setCarEnvMap(rt.texture);
+      env.traverse(o => { o.geometry?.dispose(); });
+      pm.dispose();
+    } catch (e) { /* sin reflejos */ }
   }
 
   setQuality(q) {
     if (!QUALITY[q]) q = 'medium';
     this.quality = q;
+    setCarQuality(q);
     const Q = QUALITY[q];
     const size = Q.shadow;
     if (this.sun.shadow.mapSize.x !== size) {
@@ -960,6 +976,8 @@ export class Renderer3D {
 
   _syncVehicles(game, dt) {
     const alive = new Set();
+    resetCarFrameBudget(this.quality === 'low' ? 1 : 2);
+    this.wheelBatch.begin();
     for (const v of game.vehicles) {
       if (!v.alive) continue;
       alive.add(v);
@@ -969,8 +987,10 @@ export class Renderer3D {
         cm.addTo(this.scene);
         this.carModels.set(v, cm);
       }
-      cm.update(dt);
+      cm.batch = this.wheelBatch;
+      cm.update(dt, this.camera.position);
     }
+    this.wheelBatch.end();
     for (const [v, cm] of this.carModels) {
       if (!alive.has(v)) { cm.removeFrom(this.scene); this.carModels.delete(v); }
     }

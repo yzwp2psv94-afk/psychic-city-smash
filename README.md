@@ -1,4 +1,4 @@
-# Psychic City Smash · v3.0 (3D)
+# Psychic City Smash · v4.0 (3D)
 
 Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Todas las texturas son procedurales (canvas) y no se descargan assets.
 
@@ -35,6 +35,7 @@ Luego visita `http://localhost:8080`.
 | Acelerar / frenar / reversa | **W/S** al conducir |
 | Girar | **A/D** al conducir |
 | Freno de mano / drift | **Shift** |
+| Bocina | **H** |
 | Enderezar auto / centrar cámara | **R** |
 | Pausar | **Espacio** (si no vuelas) / **Esc** / **P** / botón Pausa |
 
@@ -52,7 +53,8 @@ En el menú principal:
 
 1. **Móvil · iPhone 14**: controles táctiles tipo **mando** (se activan solos en iPhone/iPad/Android, pantalla completa en horizontal o vertical).
    - **Pulgar izquierdo**: joystick (mover / conducir) y, encima, una **cruceta de poderes** (↑ TK · → Onda · ↓ Aplastar · ← Slam · centro 🛡 Escudo).
-   - **Pulgar derecho**: rombo de 4 botones: **⚡ PODER** (grande, abajo: mantener = agarrar/cargar, arrastrar = apuntar, soltar = lanzar), **💥 Slam**, **🧊 Atrapar**, **↗ Redirigir**; al lado **🚗 Entrar**, **🛑 Freno** y **⟲** enderezar.
+   - **Pulgar derecho**: rombo de 4 botones: **⚡ PODER** (grande, abajo: mantener = agarrar/cargar, arrastrar = apuntar, soltar = lanzar), **💥 Slam**, **🧊 Atrapar**, **↗ Redirigir**; al lado **🚗 Entrar**, **🛑 F.mano** (freno de mano) y **⟲** enderezar.
+   - **Manejando** aparecen los **pedales**: **⬆ Acel.** (grande), **⬇ Freno** (frena y, ya parado, reversa) y **📯 bocina**. El joystick gira (y también acelera/frena). 🚀 Volar se oculta mientras manejas.
    - **Gatillos** en las esquinas: **L1 / R1** = zoom − / + (en 1.ª persona cambia el campo de visión), **L2 / R2** = girar cámara.
    - **🎥** (bajo L2/L1): cambia entre 1.ª persona → 3.ª persona cerca → 3.ª persona lejana. **Arrastrar en la pantalla = mirar** (arriba/abajo con límite) y todo se apunta con la **mira central** (✛).
    - **🚀 Volar** (a la derecha del joystick) y, mientras vuelas, **▲ / ▼** para la altura.
@@ -96,6 +98,20 @@ En el menú principal:
   - Grietas y cráteres en el asfalto.
 - Partículas (polvo, humo, fuego, chispas, vidrio, energía psíquica) en dos capas de `Points` con shader propio y tope de 1800.
 - Autos low-poly hechos con primitivas: abolladuras por vértice en el punto de impacto, vidrios que se agrietan y rompen, pintura chamuscada y piezas que se desprenden (capó, puertas, defensa, ruedas).
+
+## Autos (v4): física estilo GTA IV, daño y modelos
+
+Implementación propia (no usa código de ningún juego):
+
+- **Manejo pesado**: modelo de dos ejes con curva de agarre de neumático, transferencia de carga y círculo de fricción. Dirección lenta y sensible a la velocidad, **frenada larga**, el trasero se suelta con **freno de mano** (drift) o si frenas en plena curva.
+- **Suspensión blanda**: resorte-amortiguador de rolido, cabeceo y rebote. El auto **se inclina mucho** en las curvas, **hunde la trompa al frenar** y se agacha al acelerar. Los choques y aterrizajes sacuden la suspensión.
+- **Choques por masa**: impulso lineal **y angular** desde el punto de contacto (trompos). Un golpe lateral fuerte puede **volcar** al auto más liviano. Contra paredes rebota y gira según dónde pegue.
+- **Deformación por vértice** en el punto de impacto: la chapa se hunde hacia adentro, el capó se arruga hacia arriba en choques frontales, el techo se aplasta en golpes desde arriba y la chapa tiembla un instante. Las abolladuras se acumulan (hasta 12 por auto).
+- **Piezas que se sueltan**: paragolpes, puertas (queda el hueco oscuro), capó (se ve el vano del motor) y ruedas (el auto se apoya en el piso y saca chispas). Máximo 46 piezas sueltas en la ciudad (las más viejas desaparecen).
+- **Vidrios** sanos → estrellados → rotos (lluvia de vidrio), **chispas** al rozar paredes u otros autos, **humo** con motor dañado, **fuego** y explosión cuando está destrozado.
+- El tránsito IA, los autos estacionados y los que lanzas con TK reciben exactamente el mismo daño.
+- **Modelos**: sedán, hatchback, SUV, pickup, deportivo, taxi, furgón y bus. Carrocería redondeada (secciones superelípticas), cabina con parantes, capó, puertas y paragolpes separados, llantas con rayos, faros y luces traseras emisivas (**se encienden fuerte al frenar**), pintura metalizada con reflejos (clearcoat en calidad alta), vidrios polarizados, espejos y patentes. Para el móvil: geometría unida por material y compartida por tipo, todas las ruedas en 2 draw calls (instanciadas), **LOD** a más de unos 58 m (1 malla) y deformación solo cerca de la cámara (máx. 2 autos por cuadro).
+- **Sonido**: arranque y apagado del motor, rpm con 5 marchas simuladas, chirrido según derrape, choque, piezas que caen, rebote de llantas y bocina (lo que da `js/sfx.js`).
 
 ## Volar y láser (v3)
 
@@ -149,11 +165,11 @@ psychic-city-smash/
   css/style.css
   js/game.js        — bucle, input, sesión, cámara, puntuación
   js/renderer3d.js  — escena Three.js (ciudad, autos, partículas, mira, cámaras)
-  js/carmodel.js    — modelo low-poly deformable de los autos
+  js/carmodel.js    — modelos de autos por tipo (loft), LOD, ruedas instanciadas, deformación
   js/textures.js    — texturas procedurales (calles, fachadas, grietas…)
   js/world.js       — mapa, edificios por pisos, props, escombro, explosiones
   js/physics.js     — cuerpos, partículas
-  js/vehicles.js    — manejo, IA de carriles, daño progresivo, colisiones
+  js/vehicles.js    — tipos de auto, física de manejo/suspensión, IA de carriles, daño, colisiones
   js/powers.js      — poderes, carga, fuerza, atrapar/redirigir
   js/npcs.js        — civiles, rival, oleadas
   js/ui.js          — menú / HUD

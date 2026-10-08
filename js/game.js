@@ -219,6 +219,7 @@ class Game {
       if ((code === 'KeyG' || k === 'g') && !e.repeat) this._redirectStart();
       if ((code === 'KeyF' || k === 'f') && !e.repeat) this.toggleFly();
       if ((code === 'KeyR' || k === 'r') && !e.repeat) this._reset();
+      if ((code === 'KeyH' || k === 'h') && !e.repeat) this._hornKey = true;
       if (k === ']' || k === '+' || k === '=') this.setForce(this.force + 0.05);
       if (k === '[' || k === '-') this.setForce(this.force - 0.05);
       if (code === 'KeyZ') this.camYaw += 0.25;
@@ -550,10 +551,17 @@ class Game {
     if (eng !== L.engine) { L.engine = eng; eng ? SFX.engineStart() : SFX.engineStop(); }
     let skid = 0;
     if (eng) {
+      // rpm con cambios simulados (5 marchas): sube, cae al pasar de marcha
       const max = car.maxSpeed || 300;
-      SFX.setEngine(Math.min(1, Math.abs(car.forwardSpeed) / max), Math.min(1, Math.abs(car.inputThrottle || 0)));
-      const lat = Math.abs(-car.vx * Math.sin(car.angle) + car.vy * Math.cos(car.angle));
-      skid = Math.min(1, Math.max(0, (lat - 40) / 160) + (car.inputHandbrake && car.speed > 60 ? 0.5 : 0));
+      const sp = Math.min(1, Math.abs(car.forwardSpeed) / max);
+      const G = [0, 0.15, 0.33, 0.53, 0.75, 1.01];
+      let gi = 0; while (gi < 4 && sp > G[gi + 1]) gi++;
+      const thrA = Math.min(1, Math.abs(car.inputThrottle || 0));
+      let rpm = sp < 0.03 ? 0.12 + thrA * 0.3 : 0.24 + 0.7 * (sp - G[gi]) / (G[gi + 1] - G[gi]);
+      if ((car.slip || 0) > 0.4 && thrA > 0.5) rpm = Math.min(1, rpm + 0.18);
+      SFX.setEngine(Math.min(1, rpm), thrA);
+      skid = car.slip != null ? (car.speed > 30 ? car.slip : 0)
+        : Math.min(1, Math.max(0, (Math.abs(-car.vx * Math.sin(car.angle) + car.vy * Math.cos(car.angle)) - 40) / 160));
     }
     const sk = skid > 0.08;
     if (sk !== L.skid) { L.skid = sk; sk ? SFX.skidStart() : SFX.skidStop(); }
@@ -943,7 +951,11 @@ class Game {
     if (this.drivenCar) {
       const car = this.drivenCar;
       const hb = !!k['shift'] || mob.handbrake || mob.gpB || mob.gpLT > 0.4;
-      car.setDriveInput(-iy, ix, hb);
+      // v4: joystick/teclas + pedales táctiles (acelerar / freno-reversa)
+      const thr = Math.max(-1, Math.min(1, -iy + (mob.gas || 0) - (mob.rev || 0)));
+      car.setDriveInput(thr, ix, hb);
+      if ((mob.horn || this._hornKey) && SFX) SFX.horn(0.45);
+      this._hornKey = false;
       player.x = car.cx; player.y = car.cy;
       player.energy = Math.min(player.maxEnergy, player.energy + 8 * dt);
       if (!car.alive || car.isWreck) {

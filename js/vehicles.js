@@ -1,13 +1,42 @@
 /**
- * Vehículos estilo Wreckfest: daño multi-parte + abolladuras (dents) +
- * manejo arcade-sim + IA de tráfico por carriles (sin choques ambientales).
+ * Vehículos v4 (sensación tipo GTA IV, implementación propia):
+ *  - modelo de llantas por eje (ángulo de deriva → fuerza lateral con saturación),
+ *    transferencia de carga, freno de mano que bloquea el eje trasero (derrapes),
+ *    dirección lenta y dependiente de la velocidad, frenada larga, mucha inercia.
+ *  - suspensión blanda por rueda (resorte-amortiguador sobre balanceo / cabeceo / altura)
+ *    con mucho balanceo de carrocería, hundimiento al frenar y "squat" al acelerar.
+ *  - choques por masa con impulso angular (trompos), vuelcos, abolladuras en el punto
+ *    de impacto, piezas desprendibles, vidrios, chispas al raspar, humo y fuego.
  */
 
-import { Body, burst, sparks, smokePuff, fireBurst, dustCloud, aabbOverlap, GRAVITY } from './physics.js';
+import { Body, burst, sparks, smokePuff, fireBurst, dustCloud, glassShards, aabbOverlap, GRAVITY } from './physics.js';
 import { ROAD_W } from './world.js';
 import { sfx } from './audio.js';
 
-const CAR_COLORS = ['#c0392b', '#2e6fb7', '#27ae60', '#e67e22', '#8e44ad', '#16a085', '#ecf0f1', '#34495e', '#f1c40f', '#7f8c8d', '#d35400'];
+const CAR_COLORS = ['#c0392b', '#2e6fb7', '#27ae60', '#e67e22', '#8e44ad', '#16a085', '#ecf0f1', '#34495e', '#1d1f24', '#7f8c8d', '#d35400', '#9fb4c7', '#6b1f2a'];
+const G = 98;                // gravedad en px/s² (1 px = 0.1 m)
+const MAX_LOOSE_PARTS = 46;  // tope de piezas sueltas en el mundo (móvil)
+
+/** Tipos de vehículo: medidas (px), masa, potencia, agarre, balanceo, dirección */
+export const CAR_TYPES = {
+  sedan:  { w: 44, h: 20, mass: 10, power: 1.0, grip: 1.0, roll: 1.0, steer: 0.55 },
+  hatch:  { w: 38, h: 19, mass: 8.5, power: 0.9, grip: 1.0, roll: 1.0, steer: 0.6 },
+  suv:    { w: 46, h: 22, mass: 14, power: 1.05, grip: 0.92, roll: 1.45, steer: 0.52 },
+  pickup: { w: 50, h: 22, mass: 13, power: 1.05, grip: 0.9, roll: 1.3, steer: 0.5 },
+  sports: { w: 42, h: 20, mass: 9, power: 1.55, grip: 1.15, roll: 0.6, steer: 0.58 },
+  taxi:   { w: 44, h: 20, mass: 10, power: 1.0, grip: 1.0, roll: 1.05, steer: 0.55 },
+  van:    { w: 48, h: 22, mass: 15, power: 0.85, grip: 0.85, roll: 1.6, steer: 0.5 },
+  bus:    { w: 92, h: 26, mass: 38, power: 0.7, grip: 0.8, roll: 1.25, steer: 0.42 },
+};
+const TRAFFIC_MIX = [['sedan', 24], ['hatch', 15], ['suv', 14], ['pickup', 10], ['sports', 8], ['taxi', 12], ['van', 10], ['bus', 5]];
+const PARKED_MIX = [['sedan', 26], ['hatch', 20], ['suv', 16], ['pickup', 12], ['sports', 10], ['taxi', 6], ['van', 10]];
+function pickType(mix) {
+  const tot = mix.reduce((a, m) => a + m[1], 0);
+  let r = Math.random() * tot;
+  for (const [t, w] of mix) { if ((r -= w) < 0) return t; }
+  return 'sedan';
+}
+const sat = (a) => Math.sin(1.55 * Math.atan(7.5 * a)); // curva de llanta: pico ~0.17 rad y cae un poco (derrape)
 const PART_KEYS_DETACH = ['hood', 'bumper', 'doorL', 'doorR', 'wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
 const TAU = Math.PI * 2;
 
@@ -23,9 +52,12 @@ let _vid = 1;
 export class Vehicle {
   constructor(x, y, opts = {}) {
     this.id = _vid++;
-    this.w = opts.w || 44;
-    this.h = opts.h || 22;
-    this.th = 14;
+    const styleMap = { muscle: 'sports', sedan: 'sedan', hatch: 'hatch' };
+    this.type = opts.type || styleMap[opts.style] || pickType(TRAFFIC_MIX);
+    const T = this.spec = CAR_TYPES[this.type] || CAR_TYPES.sedan;
+    this.w = opts.w || T.w;
+    this.h = opts.h || T.h;
+    this.th = this.type === 'bus' ? 30 : this.type === 'van' ? 20 : 14;
     // x,y = esquina sup-izq del rectángulo sin rotar (cx,cy = centro)
     this.x = x - this.w / 2;
     this.y = y - this.h / 2;
@@ -35,9 +67,10 @@ export class Vehicle {
     this.vz = 0;
     this.liftZ = 0;
     this.yawRate = 0;
-    this.color = opts.color || CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
-    this.stripes = opts.stripes ?? Math.random() < 0.3;
-    this.style = opts.style || (Math.random() < 0.5 ? 'muscle' : Math.random() < 0.5 ? 'sedan' : 'hatch');
+    this.color = opts.color || (this.type === 'taxi' ? '#f2c218' : this.type === 'bus' ? (Math.random() < 0.5 ? '#2a6fb0' : '#d9a520') : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)]);
+    this.stripes = opts.stripes ?? (this.type === 'sports' && Math.random() < 0.5);
+    this.style = opts.style || this.type;
+    this.plate = opts.plate || (String.fromCharCode(65 + Math.random() * 26 | 0) + String.fromCharCode(65 + Math.random() * 26 | 0) + String.fromCharCode(65 + Math.random() * 26 | 0) + '-' + String(100 + Math.random() * 900 | 0));
     this.alive = true;
     this.static = false;
     this.grabbed = false;
@@ -45,7 +78,7 @@ export class Vehicle {
     this.frozen = false;
     this.frozenTimer = 0;
     this.kind = 'vehicle';
-    this.mass = opts.mass || 10;
+    this.mass = opts.mass || T.mass;
     this.bounce = 0.35;
     this.damageOnHit = 28;
     this.spin = 0;
@@ -60,6 +93,16 @@ export class Vehicle {
     this.stopTimer = 0;
     this.ignoreObstacles = 0;
     this.roll = 0; this.pitch = 0; this.rollRate = 0; this.pitchRate = 0;
+    // Suspensión blanda (visual + transferencia de carga): balanceo, cabeceo y altura
+    this.sus = { roll: 0, rollV: 0, pitch: 0, pitchV: 0, heave: 0, heaveV: 0 };
+    this.steerAngle = 0;     // ángulo real de las ruedas delanteras (rad)
+    this.latAcc = 0; this.lonAcc = 0;
+    this.slip = 0;           // 0..1 cuánto derrapa (sonido / marcas)
+    this.braking = false;
+    this.wobble = 0;         // "temblor" de chapa tras un golpe fuerte
+    this.scrape = 0;         // contacto raspando (chispas)
+    this.glassState = 0;     // 0 sano · 1 estrellado · 2 roto
+    this.pull = (Math.random() - 0.5) * 0.04; // desalineación al dañarse
     this.flipped = false;
     this.wheelSpin = 0;
     this.steerVisual = 0;
@@ -131,34 +174,36 @@ export class Vehicle {
   circles() {
     const r = this.h / 2, off = this.w / 2 - r;
     const c = Math.cos(this.angle), s = Math.sin(this.angle);
-    return [
+    const out = [
       { x: this.cx + c * off, y: this.cy + s * off, r },
       { x: this.cx - c * off, y: this.cy - s * off, r },
       { x: this.cx, y: this.cy, r },
     ];
+    if (off > r * 1.6) {     // vehículos largos (bus): círculos intermedios
+      for (const f of [0.5, -0.5]) out.push({ x: this.cx + c * off * f, y: this.cy + s * off * f, r });
+    }
+    return out;
   }
 
+  /** Agarre global (ruedas faltantes / daño) */
   get grip() {
     const wheels = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
     const ok = wheels.filter(k => this.parts[k].attached && this.parts[k].hp > 5).length;
-    let g = 0.25 + 0.75 * (ok / 4);
-    g *= 1 - this.damageRatio * 0.25;
-    if (this.inputHandbrake) g *= 0.35;
-    return Math.max(0.12, g);
+    let g = 0.3 + 0.7 * (ok / 4);
+    g *= 1 - this.damageRatio * 0.2;
+    return Math.max(0.15, g) * (this.spec?.grip || 1);
   }
   get maxSpeed() {
-    const base = this.driven ? 340 : this.hostile ? 190 : 95;
+    const p = this.spec?.power || 1;
+    const base = this.driven ? 330 * Math.pow(p, 0.35) : this.hostile ? 200 : 95;
     const eng = Math.max(0.15, this.parts.engine.hp / this.parts.engine.max);
-    return base * eng * (0.5 + 0.5 * this.grip);
+    return base * (0.35 + 0.65 * eng);
   }
   get accel() {
     const eng = Math.max(0.2, this.parts.engine.hp / this.parts.engine.max);
-    return (this.driven ? 230 : this.hostile ? 160 : 90) * eng;
+    return (this.driven ? 72 : this.hostile ? 85 : 55) * (this.spec?.power || 1) * eng;
   }
-  get brakeForce() { return this.driven ? 520 : 300; }
-  get turnAuthority() {
-    return (this.driven ? 2.7 : 2.0) * this.grip * (1 - this.damageRatio * 0.35);
-  }
+  get brakeForce() { return this.driven ? 64 * Math.pow(10 / this.mass, 0.15) : 90; }   // frenada larga, más en los pesados
 
   setDriveInput(throttle, steer, handbrake = false) {
     this.inputThrottle = Math.max(-1, Math.min(1, throttle));
@@ -166,61 +211,123 @@ export class Vehicle {
     this.inputHandbrake = !!handbrake;
   }
 
-  /** Física arcade-sim: aceleración/freno/reversa, agarre lateral, freno de mano. */
+  /**
+   * Física de manejo (modelo de dos ejes, unidades px y px/s²).
+   * Pesado: dirección lenta, frenada larga, el trasero se suelta con freno de mano o al frenar en curva.
+   */
   integrateDriving(dt) {
     if (this.isWreck || this.grabbed || this.lifted || this.frozen) {
       this.vx *= Math.pow(0.92, dt * 60);
       this.vy *= Math.pow(0.92, dt * 60);
+      this.braking = false;
       return;
     }
-    const cs = Math.cos(this.angle);
-    const sn = Math.sin(this.angle);
-    let fwd = this.vx * cs + this.vy * sn;
-    const lat = -this.vx * sn + this.vy * cs;
-    const thr = this.inputThrottle;
+    const n = dt > 0.02 ? 3 : 2, h = dt / n;
+    for (let i = 0; i < n; i++) this._driveStep(h);
+  }
+
+  _driveStep(dt) {
+    const T = this.spec || CAR_TYPES.sedan;
+    const cs = Math.cos(this.angle), sn = Math.sin(this.angle);
+    let u = this.vx * cs + this.vy * sn;          // avance
+    let v = -this.vx * sn + this.vy * cs;         // lateral
+    let w = this.yawRate;                          // giro (rad/s)
+    const Lb = this.w * 0.62, a = Lb * 0.5, b = Lb * 0.5, k2 = a * b * 1.15;
     const max = this.maxSpeed;
+    const thr = this.inputThrottle, hb = this.inputHandbrake;
+    const P = this.parts;
+    const axleOK = (l, r) => (P[l].attached ? 0.5 : 0.12) + (P[r].attached ? 0.5 : 0.12);
+    const gripF = this.grip * axleOK('wheelFL', 'wheelFR');
+    const gripR = this.grip * axleOK('wheelRL', 'wheelRR');
 
+    // Dirección: lenta (peso) y con menos ángulo a alta velocidad
+    const ai = !this.driven;
+    const dMax = T.steer / (1 + Math.abs(u) / (ai ? 260 : 150));
+    const target = this.inputSteer * dMax + (this.damageRatio > 0.3 ? this.pull * this.damageRatio : 0);
+    const rate = ai ? 3.5 : 1.7;
+    this.steerAngle += Math.max(-rate * dt, Math.min(rate * dt, target - this.steerAngle));
+    const d = this.steerAngle;
+
+    // Fuerza longitudinal (por unidad de masa)
+    let fx = 0, driveR = 0;
+    this.braking = false;
     if (thr > 0.05) {
-      if (fwd < -10) fwd += this.brakeForce * thr * dt;
-      else {
-        const k = Math.max(0, 1 - Math.pow(Math.max(0, fwd) / max, 2));
-        fwd += this.accel * thr * k * dt;
-      }
+      if (u < -8) { fx = this.brakeForce * thr; this.braking = true; }
+      else { const k = Math.max(0, 1 - Math.pow(Math.max(0, u) / max, 2)); driveR = this.accel * thr * k; fx = driveR; }
     } else if (thr < -0.05) {
-      if (fwd > 10) fwd -= this.brakeForce * (-thr) * dt;
-      else if (fwd > -max * 0.35) fwd += this.accel * 0.6 * thr * dt;
-    } else {
-      fwd *= Math.pow(this.inputHandbrake ? 0.97 : 0.988, dt * 60);
+      if (u > 8) { fx = -this.brakeForce * -thr; this.braking = true; }
+      else if (u > -max * 0.3) { driveR = this.accel * 0.55 * thr; fx = driveR; }
     }
-    if (this.inputHandbrake) fwd *= Math.pow(0.985, dt * 60);
+    // rodadura + aire + freno motor
+    const roll = (Math.abs(u) > 1 ? Math.sign(u) : u) * (thr === 0 ? 9 : 3) + u * Math.abs(u) * 0.00022;
+    fx -= roll;
+    if (hb) { fx -= Math.sign(u) * Math.min(Math.abs(u) / dt, 45); this.braking = true; }
 
-    const spd = Math.max(Math.abs(fwd), this.speed);
-    const speedNorm = Math.min(1, spd / Math.max(60, max));
-    if (spd > 6 || this.inputHandbrake) {
-      const turnScale = Math.min(1, spd / 60) * (1 - 0.45 * speedNorm);
-      this.angle += this.inputSteer * this.turnAuthority * turnScale * dt * (fwd >= 0 ? 1 : -1);
-    }
-    if (this.inputHandbrake && spd > 40) {
-      this.yawRate += this.inputSteer * 3.5 * dt;
-      this.driftFactor = Math.min(1, this.driftFactor + dt * 3);
-    } else {
-      this.driftFactor = Math.max(0, this.driftFactor - dt * 2);
-      this.yawRate *= Math.pow(0.88, dt * 60);
-    }
-    this.angle += this.yawRate * dt;
+    // Transferencia de carga (frenar carga el eje delantero)
+    const shift = Math.max(-0.2, Math.min(0.2, -this.lonAcc / G * 0.22));
+    const loadF = 0.5 + shift, loadR = 0.5 - shift;
+    const mu = 0.95 * G;
 
-    const grip = this.grip * (1 - this.driftFactor * 0.5);
-    const latDamp = Math.pow(1 - grip * 0.85, dt * 60);
-    const newLat = lat * latDamp;
-    const ncs = Math.cos(this.angle);
-    const nsn = Math.sin(this.angle);
-    this.vx = ncs * fwd - nsn * newLat;
-    this.vy = nsn * fwd + ncs * newLat;
-    const lim = max * 1.15;
-    if (this.speed > lim && this.liftZ <= 0) {
-      const s = lim / this.speed;
-      this.vx *= s; this.vy *= s;
+    const spd = Math.abs(u);
+    let fyF = 0, fyR = 0;
+    if (spd > 3) {
+      const aF = Math.atan2(v + a * w, spd) - d * Math.sign(u);
+      const aR = Math.atan2(v - b * w, spd);
+      fyF = -mu * loadF * gripF * sat(aF);
+      // eje trasero: círculo de fricción (tracción / freno de mano reducen el agarre lateral)
+      let capR = mu * loadR * gripR;
+      const used = Math.min(0.9, Math.abs(driveR) / Math.max(1, capR) * 0.35);
+      capR *= Math.sqrt(1 - used * used);
+      if (hb) capR *= 0.3;
+      fyR = -capR * sat(aR);
+      if (this.braking && !hb && spd > 60) fyR *= 0.82;   // frenar en curva suelta el trasero
+      this.slip = Math.min(1, Math.max(0, Math.abs(aR) - 0.12) * 3 + (hb && spd > 50 ? 0.5 : 0) + Math.max(0, Math.abs(aF) - 0.25));
+    } else this.slip = 0;
+
+    // Integración en el marco del auto
+    const ay = fyF * Math.cos(d) + fyR;
+    const dw = (a * fyF * Math.cos(d) - b * fyR) / k2;
+    u += (fx - fyF * Math.sin(d) + v * w) * dt;
+    v += (ay - u * w) * dt;
+    w += dw * dt;
+    // baja velocidad: modelo cinemático (sin deriva) para que estacione y gire en sitio con suavidad
+    const kin = Math.max(0, 1 - spd / 22);
+    if (kin > 0) {
+      const wk = u * Math.tan(d) / Lb;
+      w += (wk - w) * kin;
+      v *= 1 - kin * 0.6;
     }
+    if (thr === 0 && !hb && spd < 4) { u *= 0.8; }
+    this.yawRate = w;
+    this.angle += w * dt;
+    this.latAcc = ay; this.lonAcc = fx;
+    const ncs = Math.cos(this.angle), nsn = Math.sin(this.angle);
+    this.vx = ncs * u - nsn * v;
+    this.vy = nsn * u + ncs * v;
+  }
+
+  /** Suspensión blanda: resorte-amortiguador de balanceo, cabeceo y altura (sensación pesada, flotante) */
+  _suspension(dt) {
+    const s = this.sus, T = this.spec || CAR_TYPES.sedan;
+    const onGround = this.liftZ <= 0.5;
+    const rk = (T.roll || 1) * 0.0016, pk = 0.0011;
+    const rollT = onGround ? Math.max(-0.2, Math.min(0.2, -this.latAcc * rk)) : 0;
+    const pitchT = onGround ? Math.max(-0.1, Math.min(0.1, this.lonAcc * pk)) : 0;
+    const K = 34, C = 4.2, KH = 60, CH = 5;
+    const n = 2, h = dt / n;
+    for (let i = 0; i < n; i++) {
+      s.rollV += (K * (rollT - s.roll) - C * s.rollV) * h; s.roll += s.rollV * h;
+      s.pitchV += (K * 1.3 * (pitchT - s.pitch) - C * 1.1 * s.pitchV) * h; s.pitch += s.pitchV * h;
+      s.heaveV += (KH * (0 - s.heave) - CH * s.heaveV) * h; s.heave += s.heaveV * h;
+    }
+    // si no hay movimiento, la fuerza de manejo decae
+    if (!(this.driven || this.aiDrive) || this.isWreck) { this.latAcc *= 0.8; this.lonAcc *= 0.8; }
+    if (this.wobble > 0) this.wobble = Math.max(0, this.wobble - dt * 1.6);
+  }
+
+  /** Golpe a la suspensión (impactos, aterrizajes): sacude la carrocería */
+  kick(roll, pitch, heave) {
+    this.sus.rollV += roll; this.sus.pitchV += pitch; this.sus.heaveV += heave;
   }
 
   /**
@@ -254,25 +361,35 @@ export class Vehicle {
       targets.push([wk, 1.0]);
     }
 
+    // las piezas aguantan algún golpe (se abollan antes de caerse); máx. 2 se sueltan por impacto
+    let detachN = 0;
     for (const [key, mult] of targets) {
       const part = this.parts[key];
       if (!part || part.hp <= 0) continue;
-      const dmg = baseDmg * mult * (0.55 + Math.random() * 0.55);
-      const applied = Math.min(part.hp, dmg);
+      const det = PART_KEYS_DETACH.includes(key);
+      const dmg = baseDmg * mult * (0.55 + Math.random() * 0.55) * (det ? (key.startsWith('wheel') ? 0.4 : 0.55) : 1);
+      let applied = Math.min(part.hp, dmg);
+      if (det && part.attached && applied >= part.hp && detachN >= 2) applied = part.hp - 1;
       part.hp -= applied;
       scored += applied;
-      if (part.attached && part.hp <= 0 && PART_KEYS_DETACH.includes(key)) {
+      if (part.attached && part.hp <= 0 && det) {
+        detachN++;
         this._detachPart(key, world, relSpeed, credit);
       }
     }
 
-    // Abolladura visible
-    this.dents.push({ a: la, depth: Math.min(1, intensity * 0.9), top: !!opts.top });
-    if (this.dents.length > 14) {
-      const d0 = this.dents.shift();
-      this.dents[0].depth = Math.min(1, this.dents[0].depth + d0.depth * 0.5);
+    // Abolladura en el punto de impacto (coordenadas locales: x = adelante, y = lado)
+    this._addDent(la, intensity, opts);
+    // la chapa "tiembla" y la suspensión recibe el golpe
+    this.wobble = Math.min(1, Math.max(this.wobble, intensity * 0.8));
+    this.kick(-Math.sin(la) * intensity * 1.6, Math.cos(la) * intensity * 0.9, opts.top ? -intensity * 2 : intensity * 0.5);
+    // vidrios: estrellados → rotos (con lluvia de vidrio)
+    const gs = intensity > 0.9 || this.wreckTier >= 3 ? 2 : intensity > 0.45 || this.wreckTier >= 2 ? Math.max(1, this.glassState) : this.glassState;
+    if (gs > this.glassState) {
+      this.glassState = gs;
+      glassShards(world.particles, this.cx, this.cy, this.liftZ + 12, gs === 2 ? 14 : 6);
+      if (gs === 2) sfx.shatter();
     }
-    this.dentVersion++;
 
     // Empuje alejándose del impacto (el impulso por masas lo resuelve la colisión)
     if (opts.push !== false) {
@@ -290,7 +407,7 @@ export class Vehicle {
         this.cx + Math.cos(towardAngle) * this.w * 0.4,
         this.cy + Math.sin(towardAngle) * this.h * 0.6,
         this.liftZ + 8, 6 + Math.floor(intensity * 14), 200);
-      if (window.SFX && intensity > 0.55 && (this.driven || opts.credit)) window.SFX.crash(Math.min(3, intensity * 2.2));
+      if (window.SFX && intensity > 0.4 && (this.driven || opts.credit || this.nearCam)) window.SFX.crash(Math.min(3, intensity * 2));
       else sfx.hit();
     }
     if (this.parts.engine.hp < this.parts.engine.max * 0.55) {
@@ -302,6 +419,33 @@ export class Vehicle {
       scored += 25;
     }
     return scored;
+  }
+
+  /** Guarda una abolladura: punto de contacto local, dirección de empuje y profundidad */
+  _addDent(la, intensity, opts) {
+    const hl = this.w / 2, hw = this.h / 2;
+    const ca = Math.cos(la), sa = Math.sin(la);
+    let lx, ly, nx, ny;
+    if (opts.top) {
+      lx = ca * hl * 0.3; ly = sa * hw * 0.3; nx = 0; ny = 0;
+    } else {
+      const t = Math.min(hl / Math.max(1e-3, Math.abs(ca)), hw / Math.max(1e-3, Math.abs(sa)));
+      lx = ca * t; ly = sa * t;
+      // normal de la cara golpeada mezclada con la radial
+      const face = Math.abs(lx) / hl > Math.abs(ly) / hw ? [-Math.sign(lx), 0] : [0, -Math.sign(ly)];
+      nx = face[0] * 0.75 - ca * 0.25; ny = face[1] * 0.75 - sa * 0.25;
+      const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
+    }
+    const depth = Math.min(1.2, intensity * 0.85);
+    // si golpea cerca de una abolladura previa, la profundiza (acumula como chapa real)
+    const near = this.dents.find(d => !!d.top === !!opts.top && Math.hypot(d.lx - lx, d.ly - ly) < 6);
+    if (near) near.depth = Math.min(1.6, near.depth + depth * 0.6);
+    else this.dents.push({ lx, ly, nx, ny, depth, top: !!opts.top, a: la });
+    if (this.dents.length > 12) {
+      this.dents.sort((p, q) => q.depth - p.depth);
+      this.dents.length = 12;
+    }
+    this.dentVersion++;
   }
 
   applyDamage(amount, world, fromX, fromY, credit = false) {
@@ -325,6 +469,10 @@ export class Vehicle {
     const side = key.endsWith('L') ? -1 : key.endsWith('R') ? 1 : 0;
     const ang = this.angle + side * Math.PI / 2 + (Math.random() - 0.5) * 1.2;
     const spit = 70 + relSpeed * 0.35;
+    if (key.startsWith('wheel')) this.kick(side * 2.2, key.includes('F') ? -1 : 1, -0.6);
+    // tope de piezas sueltas (móvil): las más viejas desaparecen
+    const loose = world.debris.filter(d => d.alive && d.data?.carPart);
+    if (loose.length >= MAX_LOOSE_PARTS) loose[0].alive = false;
     world.debris.push(new Body({
       x: this.cx - pw / 2, y: this.cy - ph / 2,
       w: pw, h: ph, th, z: this.liftZ + 8, vz: 60 + Math.random() * 90,
@@ -349,7 +497,7 @@ export class Vehicle {
     this.inputThrottle = 0;
     this.smokeTimer = 8;
     for (const key of ['hood', 'bumper', 'doorL', 'doorR']) {
-      if (this.parts[key].attached && Math.random() < 0.6) this._detachPart(key, world, 90, credit);
+      if (this.parts[key].attached && Math.random() < 0.4) this._detachPart(key, world, 90, credit);
     }
     dustCloud(world.particles, this.cx, this.cy, 5, { color: '#555', size: 14 });
     sfx.smash();
@@ -405,17 +553,18 @@ export class Vehicle {
         this.angle += this.yawRate * dt;
         if (this.liftZ <= 0) this._land(world);
       } else {
+        // sin conductor: rueda hacia adelante, patina de costado con fricción de neumático
         this.angle += this.yawRate * dt;
-        this.vx *= Math.pow(0.975, dt * 60);
-        this.vy *= Math.pow(0.975, dt * 60);
-        this.yawRate *= Math.pow(0.94, dt * 60);
         const cs = Math.cos(this.angle), sn = Math.sin(this.angle);
         const fwd = this.vx * cs + this.vy * sn;
         const lat = -this.vx * sn + this.vy * cs;
-        const lat2 = lat * Math.pow(this.flipped ? 0.9 : 0.93, dt * 60);
-        const fwd2 = fwd * Math.pow(this.flipped ? 0.94 : 0.995, dt * 60);
+        const brakeD = this.flipped ? 0.65 * G : this.parked || this.isWreck ? 0.8 * G : 26;
+        const latD = (this.flipped ? 0.65 : 0.85) * G * (this.mass > 20 ? 1.1 : 1);
+        const fwd2 = Math.sign(fwd) * Math.max(0, Math.abs(fwd) * Math.pow(0.998, dt * 60) - brakeD * dt);
+        const lat2 = Math.sign(lat) * Math.max(0, Math.abs(lat) - latD * dt);
         this.vx = cs * fwd2 - sn * lat2;
         this.vy = sn * fwd2 + cs * lat2;
+        this.yawRate = Math.sign(this.yawRate) * Math.max(0, Math.abs(this.yawRate) * Math.pow(0.985, dt * 60) - 2.6 * dt);
         if (this.isWreck && this.speed < 4 && !this.static) this.static = true;
       }
     } else {
@@ -429,7 +578,26 @@ export class Vehicle {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     this.wheelSpin += this.forwardSpeed * dt * 0.28;
-    this.steerVisual += (this.inputSteer * 0.5 - this.steerVisual) * Math.min(1, dt * 10);
+    this.steerVisual = this.steerAngle || 0;
+    this._suspension(dt);
+    // Ruedas perdidas: el buje raspa el suelo (chispas)
+    if (this.liftZ <= 0 && this.speed > 40) {
+      for (const k of ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR']) {
+        if (this.parts[k].attached || Math.random() > 0.5) continue;
+        const fx = (k.includes('F') ? 1 : -1) * this.w * 0.31, fy = (k.endsWith('L') ? -1 : 1) * this.h * 0.45;
+        const c = Math.cos(this.angle), sn = Math.sin(this.angle);
+        sparks(particles, this.cx + c * fx - sn * fy, this.cy + sn * fx + c * fy, 1, 1, 140, '#ffcf6b');
+      }
+    }
+    // Raspado contra paredes / otros autos
+    if (this.scrape > 0) {
+      this.scrape -= dt;
+      if (Math.random() < 0.7) sparks(particles, this.scrapeX ?? this.cx, this.scrapeY ?? this.cy, this.liftZ + 4, 2, 180, Math.random() < 0.5 ? '#ffd27a' : '#fff1c4');
+    }
+    // Motor casi muerto: humo negro y, a veces, se prende
+    if (this.parts.engine.hp < this.parts.engine.max * 0.15 && this.damageRatio > 0.6 && !(this.onFire > 0) && Math.random() < dt * 0.08) {
+      this.onFire = 10 + Math.random() * 8;
+    }
 
     const b = world.bounds;
     if (this.aiDrive && this.lane) {
@@ -457,6 +625,7 @@ export class Vehicle {
       dustCloud(world.particles, this.cx, this.cy, 6, { size: 16, speed: 60 });
       if (impact > 200) world.addRoadCrack(this.cx, this.cy, 0.9);
     } else {
+      if (impact > 30 && !upside) { this.kick(0, 0, -impact * 0.02); if (window.SFX && this.nearCam) window.SFX.tireBounce(); }
       this.vz = 0;
       this.flipped = upside;
       this.roll = upside ? Math.PI : 0;
@@ -596,8 +765,10 @@ export class Vehicle {
     // —— Silueta de daño (izquierda)
     const sx = compact ? 14 : 22;
     const sy = compact ? H * 0.36 : H - 190;
+    const land = compact && W > H;     // iPhone horizontal: chico, junto al botón de cámara
     ctx.save();
-    ctx.translate(sx + 34, sy + 60);
+    if (land) { ctx.translate(96, 90); ctx.scale(0.55, 0.55); }
+    else ctx.translate(sx + 34, sy + 60);
     ctx.globalAlpha = 0.95;
     ctx.fillStyle = 'rgba(8,12,20,0.55)';
     ctx.beginPath(); ctx.roundRect(-38, -66, 76, 140, 12); ctx.fill();
@@ -637,7 +808,7 @@ export class Vehicle {
     const kmh = Math.round(this.speed * 0.36);
     const R = compact ? 46 : 62;
     const gx = compact ? W - R - 18 : W - R - 34;
-    const gy = compact ? H * 0.42 : H - R - 46;
+    const gy = land ? R + 62 : compact ? H * 0.42 : H - R - 46;
     ctx.save();
     ctx.translate(gx, gy);
     ctx.fillStyle = 'rgba(8,12,20,0.5)';
@@ -711,7 +882,7 @@ export function spawnCityTraffic(world, count = 14) {
 
 export function spawnParkedCars(world) {
   return world.parkingSpots.map(s => {
-    const v = new Vehicle(s.x, s.y, { angle: s.angle, parked: true });
+    const v = new Vehicle(s.x, s.y, { angle: s.angle, parked: true, type: pickType(PARKED_MIX) });
     return v;
   });
 }
@@ -732,7 +903,8 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
       const b = vehicles[j];
       if (!b.alive || b.grabbed || b.frozen) continue;
       if (Math.abs(a.liftZ - b.liftZ) > 14) continue;
-      if (Math.abs(a.cx - b.cx) > 50 || Math.abs(a.cy - b.cy) > 50) continue;
+      const reach = (a.w + b.w) / 2 + 4;   // el bus es largo
+      if (Math.abs(a.cx - b.cx) > reach || Math.abs(a.cy - b.cy) > reach) continue;
       const credPair = credited(a) || credited(b);
       if (!credPair && (a.ghost > 0 || b.ghost > 0)) continue;
       const cb = b.circles();
@@ -758,6 +930,31 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
         if (b.static && closing > 60) b.static = false;
         a.vx -= best.nx * jImp * ia; a.vy -= best.ny * jImp * ia;
         b.vx += best.nx * jImp * ib; b.vy += best.ny * jImp * ib;
+        // impulso angular desde el punto de contacto → trompos
+        const Ia = ma * (a.w * a.w + a.h * a.h) / 12, Ib = mb * (b.w * b.w + b.h * b.h) / 12;
+        const rax = best.px - a.cx, ray = best.py - a.cy, rbx = best.px - b.cx, rby = best.py - b.cy;
+        if (!a.static) a.yawRate -= (rax * best.ny - ray * best.nx) * jImp / Ia * 0.7;
+        if (!b.static) b.yawRate += (rbx * best.ny - rby * best.nx) * jImp / Ib * 0.7;
+        // golpe lateral muy fuerte: el más liviano puede volcar
+        if (closing > 210 && (credited(a) || credited(b))) {
+          for (const [c, n, mSelf, mOther] of [[a, -1, ma, mb], [b, 1, mb, ma]]) {
+            if (c.static || c.liftZ > 1 || mSelf > mOther * 1.3) continue;
+            const side = Math.abs(-Math.sin(c.angle) * best.nx + Math.cos(c.angle) * best.ny);
+            if (side < 0.65 || Math.random() > 0.55 + (closing - 210) / 300) continue;
+            const e = Math.min(1.6, closing / 260 * mOther / (mSelf + mOther) * 2);
+            c.vz = 55 + 70 * e;
+            c.liftZ = 1;
+            c.rollRate = n * (Math.sign(-Math.sin(c.angle) * best.nx + Math.cos(c.angle) * best.ny) || 1) * (5 + 5 * e);
+            c.aiDrive = false;
+          }
+        }
+      } else {
+        // raspando lado a lado
+        const tx = -best.ny, ty = best.nx;
+        const slide = Math.abs((a.vx - b.vx) * tx + (a.vy - b.vy) * ty);
+        if (slide > 60 && (credited(a) || credited(b))) {
+          for (const c of [a, b]) { c.scrape = 0.15; c.scrapeX = best.px; c.scrapeY = best.py; }
+        }
       }
       // Tráfico ambiental (IA/estacionados sin intervención del jugador): solo se separan, sin daño
       const ambient = !credPair && (a.aiDrive || a.parked) && (b.aiDrive || b.parked) && !a.hostile && !b.hostile;
@@ -798,10 +995,16 @@ export function resolveVehicleCollisions(vehicles, world, onScore, onShake, npcs
           const keep = Math.sqrt(Math.max(0.1, 1 - hpBefore / dmgSeg));
           v.vx *= keep; v.vy *= keep;
         } else {
-          if (hit.nx) v.vx = hit.nx * Math.abs(v.vx) * 0.35;
-          if (hit.ny) v.vy = hit.ny * Math.abs(v.vy) * 0.35;
-          v.yawRate += (Math.random() - 0.5) * 3;
+          // rebote + giro según dónde pega (esquina delantera → trompo)
+          const fwdx = Math.cos(v.angle), fwdy = Math.sin(v.angle);
+          const sideHit = fwdx * -hit.ny + fwdy * hit.nx;
+          if (hit.nx) v.vx = hit.nx * Math.abs(v.vx) * 0.3;
+          if (hit.ny) v.vy = hit.ny * Math.abs(v.vy) * 0.3;
+          v.yawRate += sideHit * Math.min(4, spd / 70) + (Math.random() - 0.5) * 1.2;
         }
+        // chispas al rozar la pared
+        const along = Math.abs(hit.nx ? v.vy : v.vx);
+        if (along > 50) { v.scrape = 0.2; v.scrapeX = v.cx - hit.nx * v.w * 0.45; v.scrapeY = v.cy - hit.ny * v.w * 0.45; }
         if (spd > 70 && onShake && credit) onShake(Math.min(10, spd * 0.05));
       } else {
         if (hit.nx) v.vx = hit.nx * Math.abs(v.vx) * 0.2;

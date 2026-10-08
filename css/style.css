@@ -840,3 +840,23 @@ body.iphone-mode .touch-btn.face.laser.pressed { background: rgba(255, 90, 26, 0
   body.iphone-mode .touch-btn.alt.up { bottom: calc(var(--sb) + 62px); }
   body.iphone-mode .touch-btn.alt.down { bottom: calc(var(--sb) + 8px); }
 }
+
+/* ——— v4: pedales táctiles (solo manejando) ——— */
+.pad-pedals { display: none; }
+body.iphone-mode.driving .pad-pedals {
+  display: block; position: absolute; pointer-events: none;
+  right: calc(var(--sr) + 266px); bottom: calc(var(--sb) + 6px);
+  width: 140px; height: 112px; transform-origin: 100% 100%;
+}
+body.iphone-mode .touch-btn.pedal { position: absolute; pointer-events: auto; border-radius: 14px; font-size: 1.25rem; }
+body.iphone-mode .pedal.gas { right: 0; bottom: 0; width: 64px; height: 104px; border-color: #55efc4; background: rgba(0, 184, 148, 0.35); }
+body.iphone-mode .pedal.rev { right: 74px; bottom: 0; width: 62px; height: 66px; border-color: #ff7675; background: rgba(214, 48, 49, 0.32); }
+body.iphone-mode .pedal.horn { right: 82px; bottom: 74px; width: 46px; height: 36px; font-size: 1rem; border-radius: 12px; }
+body.iphone-mode .touch-btn.pedal.pressed { filter: brightness(1.5); transform: scale(0.95); }
+body.iphone-mode.driving .fly-col, body.iphone-mode.driving #touchFly { display: none !important; }
+@media (orientation: portrait) {
+  body.iphone-mode.driving .pad-pedals { right: calc(var(--sr) + 6px); bottom: calc(var(--sb) + 178px); transform: scale(0.92); }
+}
+@media (orientation: landscape) and (max-height: 360px) {
+  body.iphone-mode.driving .pad-pedals { right: calc(var(--sr) + 242px); transform: scale(0.9); }
+}

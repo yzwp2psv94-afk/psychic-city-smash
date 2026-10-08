@@ -113,6 +113,9 @@ export class MobileControls {
       lookZone: document.getElementById('lookZone'),
       btnEnter: document.getElementById('touchEnter'),
       btnBrake: document.getElementById('touchBrake'),
+      btnGas: document.getElementById('touchGas'),
+      btnRev: document.getElementById('touchRev'),
+      btnHorn: document.getElementById('touchHorn'),
       btnPause: document.getElementById('touchPause'),
       btnFire: document.getElementById('touchFire'),
       btnCatch: document.getElementById('touchCatch'),
@@ -288,6 +291,10 @@ export class MobileControls {
 
     press(this._els.btnEnter, () => { this._enterPressed = true; });
     press(this._els.btnBrake, () => { this.handbrake = true; }, () => { this.handbrake = false; });
+    // v4: pedales analógicos simples (mantener)
+    if (this._els.btnGas) press(this._els.btnGas, () => { this.gas = true; }, () => { this.gas = false; });
+    if (this._els.btnRev) press(this._els.btnRev, () => { this.rev = true; }, () => { this.rev = false; });
+    if (this._els.btnHorn) press(this._els.btnHorn, () => { this._hornPressed = true; });
     press(this._els.btnPause, () => { this._pausePressed = true; });
     press(this._els.btnFire, () => {
       this._powerFire = true;
@@ -632,6 +639,9 @@ export class MobileControls {
       fireStart: false,
       fireRelease: false,
       handbrake: false,
+      gas: 0,
+      rev: 0,
+      horn: false,
       moveX: 0,
       moveY: 0,
       lookDX: 0,
@@ -653,6 +663,9 @@ export class MobileControls {
     if (this._powerFireEdge) { out.fireStart = true; this._powerFireEdge = false; }
     if (this._powerReleaseEdge) { out.fireRelease = true; this._powerReleaseEdge = false; }
     if (this.handbrake) out.handbrake = true;
+    if (this.gas) out.gas = 1;
+    if (this.rev) out.rev = 1;
+    if (this._hornPressed) { out.horn = true; this._hornPressed = false; }
 
     if (this.iphoneMode) {
       out.moveX += this.moveX;
