@@ -12,6 +12,9 @@ import {
 import { CarModel, WheelBatch, mergeGeometries, setCarEnvMap, setCarQuality, resetCarFrameBudget } from './carmodel.js';
 import { MAX_PARTICLES } from './physics.js';
 import { POWERS } from './powers.js';
+import { Destruction3D, makeDustTexture } from './destruction3d.js';
+import { GlbCarModel, hasCarGlb, registerCarGlb } from './glbcar.js';
+import { markFacadeGeometry, setFacadeLayers, patchFacadeMaterial, patchGroundMaterial, patchWorldMapped, patchCrackDecals, patchCraterDecals, patchSkyDome } from './assetfx.js';
 
 const S = 0.1;
 const _m = new THREE.Matrix4();
@@ -22,6 +25,8 @@ const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const _v = new THREE.Vector3();
 const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+const _qLean = new THREE.Quaternion();
+const _axLean = new THREE.Vector3();
 const SUN_DIR = new THREE.Vector3(-0.55, 0.62, -0.56).normalize();
 const _d = new THREE.Vector3();
 const _t = new THREE.Vector3();
@@ -60,9 +65,9 @@ function makeChunkGeometry(seed = 1) {
 }
 
 const QUALITY = {
-  high: { shadow: 2048, soft: true, particles: 1800, fxScale: 1, debrisCap: 380 },
-  medium: { shadow: 1024, soft: false, particles: 1100, fxScale: 0.75, debrisCap: 260 },
-  low: { shadow: 512, soft: false, particles: 650, fxScale: 0.5, debrisCap: 170 },
+  high: { shadow: 2048, soft: true, particles: 1800, fxScale: 1, debrisCap: 380, decals: 180 },
+  medium: { shadow: 1024, soft: false, particles: 1100, fxScale: 0.75, debrisCap: 260, decals: 120 },
+  low: { shadow: 512, soft: false, particles: 650, fxScale: 0.5, debrisCap: 170, decals: 70 },
 };
 export { QUALITY };
 
@@ -136,6 +141,7 @@ export class Renderer3D {
     if (!QUALITY[q]) q = 'medium';
     this.quality = q;
     setCarQuality(q);
+    this.destr?.setQuality(q);
     const Q = QUALITY[q];
     const size = Q.shadow;
     if (this.sun.shadow.mapSize.x !== size) {
@@ -447,6 +453,7 @@ export class Renderer3D {
     }
     for (const [, cm] of this.carModels) cm.removeFrom(this.scene);
     this.carModels.clear();
+    this.scorchMesh = null; this.patchMesh = null;
 
     const g = new THREE.Group();
     this.worldGroup = g;
@@ -466,14 +473,32 @@ export class Renderer3D {
     gm.position.set((ground.minX + ground.spanX / 2) * S, 0, (ground.minY + ground.spanY / 2) * S);
     gm.receiveShadow = true;
     g.add(gm);
+    this.groundMesh = gm;
+    this.groundSpan = { minX: ground.minX, minY: ground.minY, spanX: ground.spanX, spanY: ground.spanY };
     const grass = makeGrassTile(); grass.repeat.set(120, 120);
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+    // v4.2: pasto exterior como marco alrededor del suelo de la ciudad (sin solaparse: los cráteres no quedan tapados
+    // y no hay sobre-dibujado)
+    const ocx = world.w * S / 2, ocy = world.h * S / 2, OH = 800;
+    const gx0 = ground.minX * S - ocx, gx1 = (ground.minX + ground.spanX) * S - ocx;
+    const gy0 = ground.minY * S - ocy, gy1 = (ground.minY + ground.spanY) * S - ocy;
+    const frame = new THREE.Shape([new THREE.Vector2(-OH, -OH), new THREE.Vector2(OH, -OH), new THREE.Vector2(OH, OH), new THREE.Vector2(-OH, OH)]);
+    // (y de la forma = −z del mundo tras girar el plano)
+    frame.holes.push(new THREE.Path([new THREE.Vector2(gx0, -gy1), new THREE.Vector2(gx0, -gy0), new THREE.Vector2(gx1, -gy0), new THREE.Vector2(gx1, -gy1)]));
+    const og = new THREE.ShapeGeometry(frame);
+    { const p = og.attributes.position, uv = og.attributes.uv;   // UV como el plano original (1600 m)
+      for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) + OH) / (2 * OH), (p.getY(i) + OH) / (2 * OH)); }
+    const outer = new THREE.Mesh(og, new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
     outer.userData.ownMat = true;
     outer.rotation.x = -Math.PI / 2;
-    outer.position.set(world.w * S / 2, -0.05, world.h * S / 2);
+    outer.position.set(ocx, -0.05, ocy);
     g.add(outer);
 
     this._buildBuildings(world, g);
+    // v4.2: fractura realista, coronas dentadas, esqueletos, fachadas que caen y cráteres
+    this.destr = new Destruction3D({
+      group: g, world, groundMesh: gm, groundSpan: this.groundSpan,
+      buildingMat: this.buildingMat, facadeGeos: this._facadeGeos, quality: this.quality,
+    });
     this._buildBackdrop(world, g, margin);
     this._buildProps(world, g);
 
@@ -523,6 +548,8 @@ export class Renderer3D {
     };
     this.crackMesh = decal(this.crackTex);
     this.craterMesh = decal(this.craterTex);
+    this.dustTex = this.dustTex || makeDustTexture();
+    this.dustMesh = decal(this.dustTex);
     this._crackSeen = -1;
 
     // NPCs instanciados
@@ -539,6 +566,7 @@ export class Renderer3D {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       g.add(m);
     }
+    if (this.assets) { try { this._applyWorldAssets(world); } catch (e) { console.warn('assets (mundo):', e); } }
     this._lastSegVersion = -1;
     this._propVersion = -1;
     // Precompila shaders (onda expansiva, trozos, anillos) para evitar tirones en la 1.ª explosión
@@ -547,6 +575,94 @@ export class Renderer3D {
     tmp.forEach(m => { m.visible = true; });
     try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* opcional */ }
     tmp.forEach(m => { m.visible = false; });
+  }
+
+  /** v4.3: assets CC0 cargados (autos, texturas, cielo). Se aplican ahora y en cada mundo nuevo. */
+  setAssets(a) {
+    if (!a) return;
+    this.assets = a;
+    // autos .glb → los modelos actuales se recrean con la versión .glb
+    let cars = 0;
+    for (const [name, scene] of Object.entries(a.cars || {})) { try { registerCarGlb(name, scene); cars++; } catch (e) { console.warn('glb', name, e); } }
+    if (cars) { for (const [, cm] of this.carModels) cm.removeFrom(this.scene); this.carModels.clear(); }
+    // cielo + reflejos
+    if (a.sky?.tex) {
+      try {
+        patchSkyDome(this.sky.material, a.sky.tex, a.sky.hdr);
+        this.skyTex = a.sky.tex;
+        if (a.sky.hdr || this.quality !== 'low') {
+          const pm = new THREE.PMREMGenerator(this.renderer);
+          const env = pm.fromEquirectangular(a.sky.tex);
+          pm.dispose();
+          this.scene.environment = env.texture;
+          this.scene.environmentIntensity = 0.26;
+          this.hemi.intensity = 0.85;
+          setCarEnvMap(env.texture);
+          this.envTex = env.texture;
+        }
+      } catch (e) { console.warn('cielo:', e); }
+    }
+    if (this.world) { try { this._applyWorldAssets(this.world); } catch (e) { console.warn('assets (mundo):', e); } }
+  }
+
+  _applyWorldAssets(world) {
+    const a = this.assets, tex = a.tex || {}, avg = a.avg || {};
+    if (world._assetsApplied === this.buildingMat) return;
+    world._assetsApplied = this.buildingMat;
+    // fachadas fotográficas (textura array, una capa por edificio) con ventanas que se encienden
+    if (tex.facade && this._facadeGeos) {
+      for (const b of world.buildings) {
+        const r = Math.random();
+        b.facL = b.floors >= 9 ? (r < 0.45 ? 3 : r < 0.85 ? 2 : 1) : b.floors <= 4 ? (r < 0.3 ? 0 : r < 0.9 ? 1 : 2) : (r < 0.25 ? 0 : r < 0.55 ? 1 : r < 0.85 ? 2 : 3);
+      }
+      for (let i = 0; i < this._facadeGeos.length; i++) {
+        markFacadeGeometry(this._facadeGeos[i]);
+        setFacadeLayers(this.bMeshes[i], 300, arr => {
+          for (const seg of world.segments) {
+            if (seg.meshIndex !== i) continue;
+            const L = world.buildings[seg.buildingId]?.facL || 0;
+            for (let f = 0; f < seg.floors; f++) arr[seg.instStart + f] = L;
+          }
+        });
+      }
+      patchFacadeMaterial(this.buildingMat, tex.facade, tex.facadeNormal || null);
+    }
+    // calle / banqueta / concreto + cráteres con escombro
+    if ((tex.asphalt || tex.sidewalk || tex.concrete) && this.groundMesh) patchGroundMaterial(this.groundMesh.material, tex, avg, world);
+    // escombro y estructura rota
+    if (tex.broken) {
+      patchWorldMapped(this.chunkMesh.material, tex.broken, avg.broken, 1.4, 'chunk');
+      if (this.destr) patchWorldMapped(this.destr.concreteMat, tex.broken, avg.broken, 2.2, 'slab');
+    }
+    if (tex.rubble || tex.broken) patchWorldMapped(this.rubbleMesh.material, tex.rubble || tex.broken, avg.rubble || avg.broken, 1.8, 'rubble');
+    if (this.destr) {
+      if (tex.rebar) patchWorldMapped(this.destr.crownMat, tex.rebar, avg.rebar, 3.0, 'crown', 0.8);
+      if (tex.concrete) patchWorldMapped(this.destr.skelMat, tex.concrete, avg.concrete, 3.0, 'skel', 0.7);
+      if (tex.craterDecal) this.destr.setCraterDecal(tex.craterDecal);
+    }
+    // decals
+    if (tex.cracks && !this.patchMesh) {   // marcas de asfalto roto (atlas CC0); las grietas radiales siguen siendo líneas
+      const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({
+        color: 0x707070, transparent: true, depthWrite: false, roughness: 1,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      }), MAX_CRACKS);
+      patchCrackDecals(m, tex.cracks);
+      m.count = 0; m.receiveShadow = true; m.renderOrder = 2; m.frustumCulled = false; m.userData.ownMat = true;
+      this.worldGroup.add(m);
+      this.patchMesh = m;
+    }
+    if (tex.craterDecal) patchCraterDecals(this.craterMesh, tex.craterDecal);
+    if (tex.scorch && !this.scorchMesh) {
+      const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
+      const m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({
+        map: tex.scorch, transparent: true, depthWrite: false, roughness: 1, alphaTest: 0.02,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      }), MAX_CRACKS);
+      m.count = 0; m.receiveShadow = true; m.renderOrder = 2; m.frustumCulled = false; m.userData.ownMat = true;
+      this.worldGroup.add(m);
+      this.scorchMesh = m;
+    }
+    this._crackSeen = -1;
   }
 
   _buildBuildings(world, g) {
@@ -594,6 +710,7 @@ export class Renderer3D {
       atlasUV(geo, [f, f, ATLAS.roof, ATLAS.slab, f, f]);
       geos.push(geo);
     }
+    this._facadeGeos = geos;
     const coreGeo = new THREE.BoxGeometry(1, 1, 1);
     atlasUV(coreGeo, [ATLAS.broken, ATLAS.broken, ATLAS.roof, ATLAS.slab, ATLAS.broken, ATLAS.broken]);
 
@@ -645,14 +762,29 @@ export class Renderer3D {
   _writeSegment(seg) {
     const mesh = this.bMeshes[seg.meshIndex];
     const b = this.world.buildings[seg.buildingId];
-    _c.set(seg.color);
+    _c.setHex(colHex(seg.color));
     const dmg = 1 - seg.hp / seg.maxHp;
+    // v4.2: el edificio que colapsa se inclina (cizalla) hacia su lado dañado
+    const lean = b && b.lean ? b.lean : 0;
+    let leanQ = null, tanL = 0;
+    if (lean) { leanQ = _qLean.setFromAxisAngle(_axLean.set(b.leanDY, 0, -b.leanDX), lean); tanL = Math.tan(lean); }
+    const destr = this.destr;
+    const skel = !!(seg.skeleton && destr && destr.skelSlot(seg));
     for (let f = 0; f < seg.floors; f++) {
       const i = seg.instStart + f;
       if (f < seg.floorsAlive) {
-        _p.set(seg.cx * S, (f + 0.5) * FLOOR_H * S, seg.cy * S);
+        const zc = (f + 0.5) * FLOOR_H;
+        _p.set((seg.cx + (lean ? b.leanDX * zc * tanL : 0)) * S, zc * S, (seg.cy + (lean ? b.leanDY * zc * tanL : 0)) * S);
         _s.set(seg.w * S + 0.002, FLOOR_H * S, seg.h * S + 0.002);
-        _m.compose(_p, _q.identity(), _s);
+        _m.compose(_p, leanQ || _q.identity(), _s);
+        if (skel) {
+          mesh.setMatrixAt(i, ZERO_M);
+          mesh.setColorAt(i, _v.set(0, 0, 0));
+          _p.y = f * FLOOR_H * S;   // el esqueleto se arma desde la base del piso
+          _m.compose(_p, leanQ || _q.identity(), _s);
+          destr.setSkelFloor(seg, f, _m, _c, true);
+          continue;
+        }
         mesh.setMatrixAt(i, _m);
         const top = f === seg.floorsAlive - 1;
         const shade = seg.tintVar * (1 - dmg * 0.42) * (top && dmg > 0 ? 0.7 : 1);
@@ -660,9 +792,10 @@ export class Renderer3D {
       } else {
         mesh.setMatrixAt(i, ZERO_M);
         mesh.setColorAt(i, _v.set(0, 0, 0));
+        if (skel) destr.setSkelFloor(seg, f, null, _c, false);
       }
     }
-    void b;
+    if (destr) destr.writeSegExtras(seg, b, _c, leanQ, tanL);
   }
 
   _writeRoofItems() {
@@ -824,6 +957,7 @@ export class Renderer3D {
     this._syncDebris(world);
     this._syncRubble(world);
     this._syncCracks(world);
+    this.destr?.sync();
     this._syncParticles(world);
     this._syncFx(world, dt, game);
     this._syncVehicles(game, dt);
@@ -835,21 +969,31 @@ export class Renderer3D {
     let n = 0, nw = 0, nc = 0;
     const dm = this.debrisMesh, wm = this.wheelDebris, cm = this.chunkMesh;
     const cap = dm.instanceMatrix.count, capW = wm.instanceMatrix.count, capC = cm.instanceMatrix.count;
+    const destr = this.destr;
+    const craters = world.craters && world.craters.length > 0;
+    if (destr) destr.beginDebris();
     for (const d of world.debris) {
       if (!d.alive) continue;
       const isWheel = d.data.carPart && d.data.carPart.startsWith('wheel');
       _e.set(d.tumbleX, -d.angle, d.tumbleZ, 'YXZ');
       _q.setFromEuler(_e);
+      if (destr && d.data.shape && d.data.shape !== 'chunk') {
+        _c.setHex(colHex(d.color));
+        if (d.frozen) _c.lerp(_v.set(0.3, 0.95, 1), 0.55);
+        else if (d.grabbed) _c.lerp(_v.set(0.65, 0.5, 1), 0.5);
+        if (destr.pushDebris(d, _q, craters && d.liftZ < 2 ? Math.max(-1.6, world.groundAt(d.cx, d.cy) * S) : 0, _c)) continue;
+      }
+      const yOff = craters && d.liftZ < 2 ? Math.max(-1.6, world.groundAt(d.cx, d.cy) * S) : 0;
       if (isWheel) {
         if (nw >= capW) continue;
-        _p.set(d.cx * S, (d.liftZ + d.th * 0.25) * S + 0.05, d.cy * S);
+        _p.set(d.cx * S, (d.liftZ + d.th * 0.25) * S + 0.05 + yOff, d.cy * S);
         _s.set(0.72, 0.26, 0.72);
         wm.setMatrixAt(nw++, _m.compose(_p, _q, _s));
         continue;
       }
       if (d.data.chunk) {
         if (nc >= capC) continue;
-        _p.set(d.cx * S, (d.liftZ + d.th * 0.45) * S, d.cy * S);
+        _p.set(d.cx * S, (d.liftZ + d.th * 0.45) * S + yOff, d.cy * S);
         _s.set(d.w * S, d.th * S, d.h * S);
         cm.setMatrixAt(nc, _m.compose(_p, _q, _s));
         _c.setHex(colHex(d.color));
@@ -860,7 +1004,7 @@ export class Renderer3D {
         continue;
       }
       if (n >= cap) continue;
-      _p.set(d.cx * S, (d.liftZ + d.th * 0.5) * S, d.cy * S);
+      _p.set(d.cx * S, (d.liftZ + d.th * 0.5) * S + yOff, d.cy * S);
       _s.set(d.w * S, d.th * S, d.h * S);
       dm.setMatrixAt(n, _m.compose(_p, _q, _s));
       _c.setHex(colHex(d.color));
@@ -869,6 +1013,7 @@ export class Renderer3D {
       dm.setColorAt(n, _c);
       n++;
     }
+    if (destr) destr.endDebris();
     dm.count = n; wm.count = nw; cm.count = nc;
     dm.instanceMatrix.needsUpdate = true; wm.instanceMatrix.needsUpdate = true; cm.instanceMatrix.needsUpdate = true;
     if (dm.instanceColor) dm.instanceColor.needsUpdate = true;
@@ -899,22 +1044,43 @@ export class Renderer3D {
   _syncCracks(world) {
     if (world.crackCount === this._crackSeen) return;
     this._crackSeen = world.crackCount;
-    let nc = 0, nr = 0;
+    let nc = 0, nr = 0, nd = 0, ns = 0, np = 0;
+    const scorchM = this.scorchMesh, patchM = this.patchMesh;
     const total = Math.min(world.crackCount, MAX_CRACKS);
-    for (let i = 0; i < total; i++) {
-      const c = world.cracks[i];
+    const capD = (QUALITY[this.quality] || QUALITY.medium).decals || MAX_CRACKS;
+    const first = Math.max(0, world.crackCount - Math.min(total, capD));   // solo las más recientes según la calidad
+    for (let k = first; k < world.crackCount; k++) {
+      const c = world.cracks[k % MAX_CRACKS];
+      if (!c) continue;
       _q.setFromAxisAngle(_v.set(0, 1, 0), c.angle);
-      if (c.type === 'crater' || c.type === 'scorch') {
+      if (c.type === 'dust') {
+        const sz = 6.5 * c.size;
+        _p.set(c.x * S, 0.025 + (nd % 5) * 0.002, c.y * S);
+        this.dustMesh.setMatrixAt(nd++, _m.compose(_p, _q, _s.set(sz, 1, sz)));
+        continue;
+      }
+      if (c.type === 'scorch' && scorchM) {
+        const sz = 2.4 * c.size;
+        _p.set(c.x * S, 0.028 + (ns % 7) * 0.002, c.y * S);
+        scorchM.setMatrixAt(ns++, _m.compose(_p, _q, _s.set(sz, 1, sz)));
+      } else if (c.type === 'crater' || c.type === 'scorch') {
         const sz = (c.type === 'scorch' ? 2.2 : 5.5) * c.size;
         _p.set(c.x * S, 0.03 + (nr % 7) * 0.002, c.y * S);
         this.craterMesh.setMatrixAt(nr++, _m.compose(_p, _q, _s.set(sz, 1, sz)));
+      } else if (patchM && !c.radial) {
+        const sz = 3.6 * c.size;
+        _p.set(c.x * S, 0.022 + (np % 7) * 0.002, c.y * S);
+        patchM.setMatrixAt(np++, _m.compose(_p, _q, _s.set(sz, 1, sz)));
       } else {
         const sz = 4.2 * c.size;
         _p.set(c.x * S, 0.02 + (nc % 7) * 0.002, c.y * S);
         this.crackMesh.setMatrixAt(nc++, _m.compose(_p, _q, _s.set(sz, 1, sz)));
       }
     }
-    this.crackMesh.count = nc; this.craterMesh.count = nr;
+    this.crackMesh.count = nc; this.craterMesh.count = nr; this.dustMesh.count = nd;
+    if (scorchM) { scorchM.count = ns; scorchM.instanceMatrix.needsUpdate = true; }
+    if (patchM) { patchM.count = np; patchM.instanceMatrix.needsUpdate = true; }
+    this.dustMesh.instanceMatrix.needsUpdate = true;
     this.crackMesh.instanceMatrix.needsUpdate = true; this.craterMesh.instanceMatrix.needsUpdate = true;
   }
 
@@ -1013,7 +1179,9 @@ export class Renderer3D {
       alive.add(v);
       let cm = this.carModels.get(v);
       if (!cm) {
-        cm = new CarModel(v);
+        cm = null;
+        if (hasCarGlb(v.type)) { try { cm = new GlbCarModel(v); } catch (e) { console.warn('glb car', e); cm = null; } }
+        if (!cm) cm = new CarModel(v);
         cm.addTo(this.scene);
         this.carModels.set(v, cm);
       }
@@ -1087,7 +1255,7 @@ export class Renderer3D {
         const tq = new THREE.Quaternion().setFromAxisAngle(_v.set(Math.sin(n.facing), 0, -Math.cos(n.facing)), Math.min(1.4, (0.9 - n.knocked) * 4));
         _q.premultiply(tq);
       }
-      _p.set(n.cx * S, n.liftZ * S + bob, n.cy * S);
+      _p.set(n.cx * S, n.liftZ * S + bob + (game.world.craters.length && n.liftZ < 2 ? game.world.groundAt(n.cx, n.cy) * S : 0), n.cy * S);
       _m.compose(_p, _q, _s.set(1, 1, 1));
       this.npcTorso.setMatrixAt(i, _m); this.npcHead.setMatrixAt(i, _m); this.npcLegs.setMatrixAt(i, _m);
       this.npcTorso.setColorAt(i, _c.setHex(colHex(n.hostile ? '#c0392b' : n.color)));

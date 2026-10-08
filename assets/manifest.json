@@ -1,0 +1,1330 @@
+{
+ "units": "meters",
+ "up": "+Y",
+ "forward": "+Z",
+ "left": "+X",
+ "right": "-X",
+ "origin": "ground center (y=0 at lowest tire point, x/z centered on bounding box)",
+ "vehicles": [
+  {
+   "file": "models/vehicles/sedan.glb",
+   "type": "sedan (4-door)",
+   "bytes": 200176,
+   "triangles": 3230,
+   "size_m": {
+    "width": 1.93,
+    "height": 1.25,
+    "length": 4.5
+   },
+   "wheelRadius_m": 0.279,
+   "wheelbase_m": 2.6,
+   "rootNode": "sedan",
+   "parts": {
+    "body": {
+     "triangles": 743,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 60,
+     "pivot": [
+      0,
+      0.683,
+      0.868
+     ]
+    },
+    "bumper_front": {
+     "triangles": 120,
+     "pivot": [
+      -0.001,
+      0.388,
+      1.946
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 70,
+     "pivot": [
+      0,
+      0.467,
+      -1.984
+     ]
+    },
+    "door_FL": {
+     "triangles": 82,
+     "pivot": [
+      0.777,
+      0.681,
+      0.969
+     ]
+    },
+    "door_FR": {
+     "triangles": 84,
+     "pivot": [
+      -0.777,
+      0.681,
+      0.977
+     ]
+    },
+    "door_RL": {
+     "triangles": 57,
+     "pivot": [
+      0.723,
+      0.684,
+      0.204
+     ]
+    },
+    "door_RR": {
+     "triangles": 58,
+     "pivot": [
+      -0.723,
+      0.684,
+      0.204
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.736,
+      0.279,
+      1.272
+     ],
+     "radius": 0.279
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.735,
+      0.279,
+      1.272
+     ],
+     "radius": 0.279
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.735,
+      0.279,
+      -1.329
+     ],
+     "radius": 0.279
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.733,
+      0.279,
+      -1.329
+     ],
+     "radius": 0.279
+    }
+   },
+   "materials": [
+    "paint",
+    "window",
+    "trim_black",
+    "trim_grey",
+    "taillight",
+    "headlight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): NormalCar1.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/sedan_b.glb",
+   "type": "hatchback / compact (4-door)",
+   "bytes": 213852,
+   "triangles": 3420,
+   "size_m": {
+    "width": 1.98,
+    "height": 1.38,
+    "length": 4
+   },
+   "wheelRadius_m": 0.299,
+   "wheelbase_m": 2.41,
+   "rootNode": "sedan_b",
+   "parts": {
+    "body": {
+     "triangles": 879,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 62,
+     "pivot": [
+      0,
+      0.741,
+      0.868
+     ]
+    },
+    "bumper_front": {
+     "triangles": 171,
+     "pivot": [
+      0,
+      0.433,
+      1.798
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 76,
+     "pivot": [
+      0,
+      0.525,
+      -1.839
+     ]
+    },
+    "door_FL": {
+     "triangles": 75,
+     "pivot": [
+      0.771,
+      0.761,
+      0.94
+     ]
+    },
+    "door_FR": {
+     "triangles": 75,
+     "pivot": [
+      -0.771,
+      0.761,
+      0.932
+     ]
+    },
+    "door_RL": {
+     "triangles": 52,
+     "pivot": [
+      0.75,
+      0.776,
+      -0.077
+     ]
+    },
+    "door_RR": {
+     "triangles": 54,
+     "pivot": [
+      -0.75,
+      0.776,
+      -0.055
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.796,
+      0.299,
+      1.251
+     ],
+     "radius": 0.299
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.795,
+      0.299,
+      1.251
+     ],
+     "radius": 0.299
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.796,
+      0.299,
+      -1.161
+     ],
+     "radius": 0.299
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.795,
+      0.299,
+      -1.161
+     ],
+     "radius": 0.299
+    }
+   },
+   "materials": [
+    "paint",
+    "window",
+    "trim_black",
+    "trim_grey",
+    "headlight",
+    "trim_light",
+    "taillight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): NormalCar2.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/taxi.glb",
+   "type": "taxi (4-door, roof sign)",
+   "bytes": 215128,
+   "triangles": 3554,
+   "size_m": {
+    "width": 1.97,
+    "height": 1.43,
+    "length": 4.6
+   },
+   "wheelRadius_m": 0.285,
+   "wheelbase_m": 2.66,
+   "rootNode": "taxi",
+   "parts": {
+    "body": {
+     "triangles": 1000,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 58,
+     "pivot": [
+      0,
+      0.725,
+      0.887
+     ]
+    },
+    "bumper_front": {
+     "triangles": 146,
+     "pivot": [
+      -0.001,
+      0.397,
+      1.989
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 80,
+     "pivot": [
+      0,
+      0.478,
+      -2.028
+     ]
+    },
+    "door_FL": {
+     "triangles": 94,
+     "pivot": [
+      0.498,
+      0.766,
+      0.99
+     ]
+    },
+    "door_FR": {
+     "triangles": 95,
+     "pivot": [
+      -0.494,
+      0.764,
+      0.999
+     ]
+    },
+    "door_RL": {
+     "triangles": 62,
+     "pivot": [
+      0.739,
+      0.711,
+      -0.143
+     ]
+    },
+    "door_RR": {
+     "triangles": 63,
+     "pivot": [
+      -0.739,
+      0.711,
+      0.22
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.752,
+      0.285,
+      1.3
+     ],
+     "radius": 0.285
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.752,
+      0.285,
+      1.3
+     ],
+     "radius": 0.285
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.75,
+      0.285,
+      -1.358
+     ],
+     "radius": 0.285
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.75,
+      0.285,
+      -1.358
+     ],
+     "radius": 0.285
+    }
+   },
+   "materials": [
+    "paint",
+    "window",
+    "trim_black",
+    "taillight",
+    "trim_grey",
+    "headlight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): Taxi.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/police.glb",
+   "type": "police sedan (lightbar: siren_white/siren_blue materials)",
+   "bytes": 215376,
+   "triangles": 3508,
+   "size_m": {
+    "width": 2,
+    "height": 1.39,
+    "length": 4.2
+   },
+   "wheelRadius_m": 0.31,
+   "wheelbase_m": 2.58,
+   "rootNode": "police",
+   "parts": {
+    "body": {
+     "triangles": 1017,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 66,
+     "pivot": [
+      0,
+      0.726,
+      0.784
+     ]
+    },
+    "bumper_front": {
+     "triangles": 153,
+     "pivot": [
+      0,
+      0.373,
+      1.889
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 98,
+     "pivot": [
+      0,
+      0.461,
+      -1.933
+     ]
+    },
+    "door_FL": {
+     "triangles": 58,
+     "pivot": [
+      0.793,
+      0.705,
+      1.096
+     ]
+    },
+    "door_FR": {
+     "triangles": 59,
+     "pivot": [
+      -0.793,
+      0.705,
+      0.957
+     ]
+    },
+    "door_RL": {
+     "triangles": 51,
+     "pivot": [
+      0.699,
+      0.736,
+      -0.144
+     ]
+    },
+    "door_RR": {
+     "triangles": 50,
+     "pivot": [
+      -0.699,
+      0.736,
+      -0.144
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.802,
+      0.31,
+      1.287
+     ],
+     "radius": 0.31
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.801,
+      0.31,
+      1.287
+     ],
+     "radius": 0.31
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.776,
+      0.31,
+      -1.298
+     ],
+     "radius": 0.31
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.775,
+      0.31,
+      -1.298
+     ],
+     "radius": 0.31
+    }
+   },
+   "materials": [
+    "paint",
+    "window",
+    "trim_black",
+    "taillight",
+    "siren_white",
+    "siren_blue",
+    "trim_grey",
+    "headlight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): Cop.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/suv.glb",
+   "type": "SUV / crossover (4-door, roof rails)",
+   "bytes": 221108,
+   "triangles": 3602,
+   "size_m": {
+    "width": 2.18,
+    "height": 1.58,
+    "length": 4.35
+   },
+   "wheelRadius_m": 0.338,
+   "wheelbase_m": 2.65,
+   "rootNode": "suv",
+   "parts": {
+    "body": {
+     "triangles": 1076,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 64,
+     "pivot": [
+      0,
+      0.851,
+      0.928
+     ]
+    },
+    "bumper_front": {
+     "triangles": 165,
+     "pivot": [
+      0,
+      0.511,
+      1.953
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 76,
+     "pivot": [
+      0,
+      0.583,
+      -1.983
+     ]
+    },
+    "door_FL": {
+     "triangles": 79,
+     "pivot": [
+      0.798,
+      0.88,
+      1.007
+     ]
+    },
+    "door_FR": {
+     "triangles": 78,
+     "pivot": [
+      -0.85,
+      0.88,
+      0.998
+     ]
+    },
+    "door_RL": {
+     "triangles": 38,
+     "pivot": [
+      0.826,
+      0.88,
+      -0.089
+     ]
+    },
+    "door_RR": {
+     "triangles": 38,
+     "pivot": [
+      -0.826,
+      0.88,
+      -0.089
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.798,
+      0.338,
+      1.361
+     ],
+     "radius": 0.338
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.788,
+      0.338,
+      1.361
+     ],
+     "radius": 0.338
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.826,
+      0.338,
+      -1.293
+     ],
+     "radius": 0.338
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.816,
+      0.338,
+      -1.293
+     ],
+     "radius": 0.338
+    }
+   },
+   "materials": [
+    "paint",
+    "window",
+    "trim_black",
+    "trim_grey",
+    "headlight",
+    "taillight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): SUV.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/sports.glb",
+   "type": "sports coupe (2-door)",
+   "bytes": 202892,
+   "triangles": 3326,
+   "size_m": {
+    "width": 1.93,
+    "height": 1.24,
+    "length": 4.25
+   },
+   "wheelRadius_m": 0.278,
+   "wheelbase_m": 2.62,
+   "rootNode": "sports",
+   "parts": {
+    "body": {
+     "triangles": 860,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 80,
+     "pivot": [
+      0,
+      0.726,
+      0.798
+     ]
+    },
+    "bumper_front": {
+     "triangles": 129,
+     "pivot": [
+      0,
+      0.396,
+      1.892
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 76,
+     "pivot": [
+      0,
+      0.476,
+      -1.92
+     ]
+    },
+    "door_FL": {
+     "triangles": 121,
+     "pivot": [
+      0.744,
+      0.698,
+      1.085
+     ]
+    },
+    "door_FR": {
+     "triangles": 120,
+     "pivot": [
+      -0.744,
+      0.698,
+      1.085
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.772,
+      0.278,
+      1.272
+     ],
+     "radius": 0.278
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.764,
+      0.278,
+      1.272
+     ],
+     "radius": 0.278
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.742,
+      0.278,
+      -1.343
+     ],
+     "radius": 0.278
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.734,
+      0.278,
+      -1.343
+     ],
+     "radius": 0.278
+    }
+   },
+   "materials": [
+    "paint",
+    "paint_secondary",
+    "window",
+    "trim_grey",
+    "headlight",
+    "taillight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): SportsCar.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/sports_b.glb",
+   "type": "sports coupe B (2-door)",
+   "bytes": 206928,
+   "triangles": 3408,
+   "size_m": {
+    "width": 2.03,
+    "height": 1.3,
+    "length": 4.25
+   },
+   "wheelRadius_m": 0.303,
+   "wheelbase_m": 2.71,
+   "rootNode": "sports_b",
+   "parts": {
+    "body": {
+     "triangles": 936,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 68,
+     "pivot": [
+      0,
+      0.716,
+      0.861
+     ]
+    },
+    "bumper_front": {
+     "triangles": 144,
+     "pivot": [
+      0,
+      0.416,
+      1.91
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 68,
+     "pivot": [
+      0,
+      0.51,
+      -1.961
+     ]
+    },
+    "door_FL": {
+     "triangles": 125,
+     "pivot": [
+      0.793,
+      0.717,
+      1.03
+     ]
+    },
+    "door_FR": {
+     "triangles": 127,
+     "pivot": [
+      -0.793,
+      0.717,
+      1.031
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 420,
+     "pivot": [
+      0.786,
+      0.303,
+      1.354
+     ],
+     "radius": 0.303
+    },
+    "wheel_FR": {
+     "triangles": 420,
+     "pivot": [
+      -0.784,
+      0.303,
+      1.354
+     ],
+     "radius": 0.303
+    },
+    "wheel_RL": {
+     "triangles": 420,
+     "pivot": [
+      0.76,
+      0.303,
+      -1.359
+     ],
+     "radius": 0.303
+    },
+    "wheel_RR": {
+     "triangles": 420,
+     "pivot": [
+      -0.758,
+      0.303,
+      -1.359
+     ],
+     "radius": 0.303
+    }
+   },
+   "materials": [
+    "paint",
+    "window",
+    "trim_grey",
+    "headlight",
+    "taillight",
+    "rim",
+    "tire"
+   ],
+   "source": "Quaternius LowPoly Cars (Realistic Car Pack Nov 2018): SportsCar2.obj",
+   "detail": "v2: headlight_L/R and taillight_L/R pulled out as emissive child meshes, grille + front/rear plate on the bumpers, chrome window_frame, hubcap on each wheel (rim material brightened). Children use the parent part's local frame, so part pivots are unchanged and the bounding width is unchanged (length grows ~1\u20132 cm from the plates)."
+  },
+  {
+   "file": "models/vehicles/pickup.glb",
+   "type": "pickup truck (2-door, Kenney stylized)",
+   "bytes": 92484,
+   "triangles": 2090,
+   "size_m": {
+    "width": 2.25,
+    "height": 1.95,
+    "length": 4.42
+   },
+   "wheelRadius_m": 0.449,
+   "wheelbase_m": 2.43,
+   "rootNode": "pickup",
+   "parts": {
+    "body": {
+     "triangles": 529,
+     "pivot": [
+      0,
+      0,
+      0
+     ]
+    },
+    "hood": {
+     "triangles": 29,
+     "pivot": [
+      0,
+      0.974,
+      1.034
+     ]
+    },
+    "bumper_front": {
+     "triangles": 87,
+     "pivot": [
+      0,
+      0.562,
+      1.993
+     ]
+    },
+    "bumper_rear": {
+     "triangles": 61,
+     "pivot": [
+      0,
+      0.562,
+      -1.88
+     ]
+    },
+    "door_FL": {
+     "triangles": 24,
+     "pivot": [
+      0.824,
+      1.124,
+      0.971
+     ]
+    },
+    "door_FR": {
+     "triangles": 24,
+     "pivot": [
+      -0.824,
+      1.124,
+      0.971
+     ]
+    },
+    "wheel_FL": {
+     "triangles": 332,
+     "pivot": [
+      0.637,
+      0.45,
+      1.326
+     ],
+     "radius": 0.449
+    },
+    "wheel_FR": {
+     "triangles": 332,
+     "pivot": [
+      -0.637,
+      0.45,
+      1.326
+     ],
+     "radius": 0.449
+    },
+    "wheel_RL": {
+     "triangles": 332,
+     "pivot": [
+      0.637,
+      0.45,
+      -1.101
+     ],
+     "radius": 0.449
+    },
+    "wheel_RR": {
+     "triangles": 332,
+     "pivot": [
+      -0.637,
+      0.45,
+      -1.101
+     ],
+     "radius": 0.449
+    }
+   },
+   "materials": [
+    "kenney_colormap"
+   ],
+   "source": "Kenney Car Kit: truck.glb",
+   "detail": "v2 (limited): headlight_L/R and taillight_L/R separated out of the Kenney palette, plus front and rear plates. No grille, mirrors or hubcaps \u2014 the stylized mesh has no separate window or rim faces to build them on."
+  }
+ ],
+ "debris": {
+  "file": "models/vehicles/kenney_car_debris.glb",
+  "bytes": 73880,
+  "triangles": 1194,
+  "scale": 1.5,
+  "nodes": [
+   "debris_bumper",
+   "debris_door",
+   "debris_door_window",
+   "debris_tire",
+   "debris_plate_a",
+   "debris_plate_b",
+   "debris_plate_small_a",
+   "debris_spoiler_a",
+   "debris_drivetrain",
+   "debris_bolt",
+   "debris_nut"
+  ],
+  "note": "Each top-level node is one loose car part (bumper, door, tire, plates, spoiler, drivetrain, bolt, nut). Geometry keeps Kenney's car-relative offset; recenter with Box3 if needed. Shares one 512px palette texture (use NearestFilter)."
+ },
+ "textures": [
+  {
+   "file": "textures/concrete_albedo.webp",
+   "bytes": 23438,
+   "width": 1024,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/concrete_normal.webp",
+   "bytes": 75056,
+   "width": 1024,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/concrete_rough.webp",
+   "bytes": 5388,
+   "width": 512,
+   "height": 256,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/concrete_broken_albedo.webp",
+   "bytes": 139216,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/concrete_broken_normal.webp",
+   "bytes": 508668,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/concrete_broken_rough.webp",
+   "bytes": 12740,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/concrete_rebar_albedo.webp",
+   "bytes": 88998,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/concrete_rebar_normal.webp",
+   "bytes": 248566,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/concrete_rebar_rough.webp",
+   "bytes": 6554,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/rubble_ground_albedo.webp",
+   "bytes": 147318,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/rubble_ground_normal.webp",
+   "bytes": 299938,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/rubble_ground_rough.webp",
+   "bytes": 5150,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_brick_dark_albedo.webp",
+   "bytes": 158826,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_brick_dark_normal.webp",
+   "bytes": 240864,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_brick_dark_rough.webp",
+   "bytes": 34376,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_brick_windows_albedo.webp",
+   "bytes": 135714,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_brick_windows_normal.webp",
+   "bytes": 231300,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_brick_windows_rough.webp",
+   "bytes": 33908,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_concrete_office_albedo.webp",
+   "bytes": 148194,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_concrete_office_normal.webp",
+   "bytes": 246148,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_concrete_office_rough.webp",
+   "bytes": 34002,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_glass_grid_albedo.webp",
+   "bytes": 19466,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_glass_grid_normal.webp",
+   "bytes": 17146,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/facade_glass_grid_rough.webp",
+   "bytes": 4200,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/road_asphalt_albedo.webp",
+   "bytes": 120652,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/road_asphalt_cracked_albedo.webp",
+   "bytes": 364966,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/road_asphalt_cracked_normal.webp",
+   "bytes": 401364,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/road_asphalt_cracked_rough.webp",
+   "bytes": 55254,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/road_asphalt_normal.webp",
+   "bytes": 131444,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/road_asphalt_rough.webp",
+   "bytes": 3132,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/sidewalk_pavers_albedo.webp",
+   "bytes": 271882,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/sidewalk_pavers_normal.webp",
+   "bytes": 416344,
+   "width": 1024,
+   "height": 1024,
+   "alpha": false
+  },
+  {
+   "file": "textures/sidewalk_pavers_rough.webp",
+   "bytes": 4124,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  }
+ ],
+ "decals": [
+  {
+   "file": "textures/destruction/decal_cracks_atlas.webp",
+   "bytes": 222932,
+   "width": 1024,
+   "height": 1024,
+   "alpha": true
+  },
+  {
+   "file": "textures/destruction/decal_cracks_atlas_normal.webp",
+   "bytes": 30246,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/decal_crater_a.webp",
+   "bytes": 26610,
+   "width": 512,
+   "height": 512,
+   "alpha": true
+  },
+  {
+   "file": "textures/destruction/decal_crater_a_normal.webp",
+   "bytes": 29498,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/decal_crater_b.webp",
+   "bytes": 23752,
+   "width": 512,
+   "height": 512,
+   "alpha": true
+  },
+  {
+   "file": "textures/destruction/decal_crater_b_normal.webp",
+   "bytes": 24810,
+   "width": 512,
+   "height": 512,
+   "alpha": false
+  },
+  {
+   "file": "textures/destruction/decal_scorch.webp",
+   "bytes": 36600,
+   "width": 512,
+   "height": 512,
+   "alpha": true
+  }
+ ],
+ "hdri": [
+  {
+   "file": "hdri/canary_wharf_1k.hdr",
+   "bytes": 1658405
+  },
+  {
+   "file": "hdri/canary_wharf_2k_ldr.jpg",
+   "bytes": 196232
+  },
+  {
+   "file": "hdri/canary_wharf_2k_ldr.webp",
+   "bytes": 169858
+  }
+ ],
+ "decalNotes": {
+  "decal_cracks_atlas.webp": {
+   "uvRects_u_v_w_h": [
+    [
+     0.008,
+     0.754,
+     0.988,
+     0.242
+    ],
+    [
+     0.043,
+     0.508,
+     0.953,
+     0.219
+    ],
+    [
+     0.031,
+     0.285,
+     0.918,
+     0.199
+    ],
+    [
+     0.008,
+     0.004,
+     0.973,
+     0.238
+    ]
+   ],
+   "note": "UV rects in three.js UV space (v=0 bottom, texture.flipY=true). 4 horizontal crack strips (row 2 contains a strip plus smaller pieces)."
+  }
+ }
+}

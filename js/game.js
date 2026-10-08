@@ -3,7 +3,8 @@
  * Lógica 2.5D (px) + render Three.js · destrucción persistente · TK con carga · autos Wreckfest-like
  */
 
-import { World, impactDamage } from './world.js';
+import { World, impactDamage, CRATER_CAP } from './world.js';
+import { loadAssets } from './assets.js';
 import { stepBody, aabbOverlap, dustCloud, sparks } from './physics.js';
 import { PowersSystem, POWERS } from './powers.js';
 import { spawnCivilians, spawnHostileWave, RivalPsychic } from './npcs.js';
@@ -230,9 +231,47 @@ class Game {
     this._bindInput();
     this._bindButtons();
     this.mobile.init();
+    this._loadAssets();
     this.ui.updateCharge({ charging: false, charge: 0, force: this.force });
 
     requestAnimationFrame(t => this._loop(t));
+  }
+
+  /** v4.3: assets CC0 en segundo plano con barra de progreso; si algo falla, queda lo procedural */
+  _loadAssets() {
+    const box = document.getElementById('loadBox'), fill = document.getElementById('loadFill'), txt = document.getElementById('loadText');
+    const play = document.getElementById('btnPlay');
+    if (new URLSearchParams(location.search).get('assets') === '0') { box?.classList.add('hidden'); return; }
+    window.__pcsLoading = true;
+    const playLabel = play ? play.textContent : '';
+    let finished = false;
+    const unlock = (msg) => {
+      if (finished) return;
+      finished = true;
+      window.__pcsLoading = false;
+      if (play) { play.disabled = false; play.classList.remove('loading'); play.textContent = playLabel; }
+      if (txt && msg) txt.textContent = msg;
+      if (box) setTimeout(() => box.classList.add('done'), msg ? 2600 : 400);
+    };
+    if (play) { play.disabled = true; play.classList.add('loading'); play.textContent = '⏳ CARGANDO…'; }
+    // nunca bloquear más de 12 s: se juega con lo que haya y el resto aparece al terminar
+    const timer = setTimeout(() => unlock('Cargando en segundo plano… ya puedes jugar'), 12000);
+    loadAssets({
+      quality: this.quality,
+      onProgress: (f) => {
+        const pc = Math.round(f * 100);
+        if (fill) fill.style.width = pc + '%';
+        if (txt && !finished) txt.textContent = `Cargando autos, texturas y cielo… ${pc} %`;
+        if (play && !finished) play.textContent = `⏳ CARGANDO… ${pc} %`;
+      },
+    }).then(a => {
+      this.assets = a;
+      try { this.r3d.setAssets(a); } catch (e) { console.warn('assets:', e); a.errors.push(String(e)); }
+      if (a.errors.length) console.warn('Assets con fallos (se usa respaldo procedural):', a.errors);
+      clearTimeout(timer);
+      unlock(a.errors.length ? `Listo · ${a.errors.length} archivo(s) no cargaron: se usan gráficos procedurales` : null);
+      if (finished && txt && !a.errors.length) txt.textContent = 'Listo';
+    }).catch(e => { console.warn('assets:', e); clearTimeout(timer); unlock('Sin assets: se usan gráficos procedurales'); });
   }
 
   _webglError(err) {
@@ -259,7 +298,7 @@ class Game {
     const Q = this.r3d?.setQuality(this.quality) || QUALITY[this.quality];
     if (!Q) return;
     setParticleBudget(Q.particles);
-    if (this.world) { this.world.fxScale = Q.fxScale; this.world.debrisCap = Q.debrisCap; }
+    if (this.world) { this.world.fxScale = Q.fxScale; this.world.debrisCap = Q.debrisCap; this.world.craterCap = CRATER_CAP[this.quality] || CRATER_CAP.medium; }
     document.body.dataset.quality = this.quality;
   }
 
@@ -500,6 +539,7 @@ class Game {
     const pw = Math.min(1.6, (h - 25) / 180);
     if (pw <= 0) return;
     const w = this.world, r = 40 + 90 * pw;
+    w.addCrater?.(p.x, p.y, 0.3 + pw * 1.6);   // v4.2: aterrizaje fuerte = cráter
     this.score += w.applyRadialDamage(p.x, p.y, r, 8 + 40 * pw, 160 + 320 * pw, true);
     for (const v of this.vehicles) {
       if (!v.alive || v === this.drivenCar) continue;

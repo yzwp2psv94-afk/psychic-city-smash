@@ -24,11 +24,15 @@ const DEFORM_DIST = 45;    // m — más lejos: no se recalculan vértices
 
 export function setCarQuality(q) { QUALITY = q; }
 export function resetCarFrameBudget(n = 2) { deformBudget = n; }
+export function carDeformBudget() { return deformBudget; }
+export function useCarDeformBudget() { deformBudget--; }
+export function carQuality() { return QUALITY; }
 export function setCarEnvMap(tex) {
   ENV.tex = tex;
   for (const m of ENV.mats) { m.envMap = tex; m.needsUpdate = true; }
 }
-function envMat(m, intensity = 1) {
+export function releaseEnvMat(m) { ENV.mats.delete(m); }
+export function envMat(m, intensity = 1) {
   m.envMapIntensity = intensity;
   if (ENV.tex) m.envMap = ENV.tex;
   ENV.mats.add(m);
@@ -66,7 +70,7 @@ function signTexture() {
   return t;
 }
 
-function getShared() {
+export function getShared() {
   if (shared) return shared;
   shared = {
     tire: new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9, metalness: 0 }),
@@ -398,7 +402,7 @@ function buildGeometry(type, L, W) {
   return geo;
 }
 
-function getTypeGeo(type, L, W) {
+export function getTypeGeo(type, L, W) {
   const sh = getShared();
   const key = type + ':' + L.toFixed(2) + ':' + W.toFixed(2);
   let g = sh.geoCache.get(key);
@@ -653,8 +657,8 @@ export class CarModel {
     const sagPitch = (miss('wheelFL') + miss('wheelFR') - miss('wheelRL') - miss('wheelRR')) * -0.05;
     const sagY = (miss('wheelFL') + miss('wheelFR') + miss('wheelRL') + miss('wheelRR')) * 0.06;
     const g = this.group;
-    g.position.set(v.cx * S, v.liftZ * S + this.cg - sagY, v.cy * S);
-    g.rotation.set((v.roll || 0) + sagRoll, -v.angle, (v.pitch || 0) + sagPitch, 'YZX');
+    g.position.set(v.cx * S, (v.liftZ + (v.groundZ || 0)) * S + this.cg - sagY, v.cy * S);
+    g.rotation.set((v.roll || 0) + sagRoll + (v.gRoll || 0), -v.angle, (v.pitch || 0) + sagPitch + (v.gPitch || 0), 'YZX');
     // suspensión blanda (rolido / cabeceo / rebote) + chapa que tiembla
     const su = v.sus;
     if (su) {
@@ -684,7 +688,7 @@ export class CarModel {
       }
     }
 
-    this.blob.position.set(v.cx * S, 0.03, v.cy * S);
+    this.blob.position.set(v.cx * S, 0.03 + (v.groundZ || 0) * S, v.cy * S);
     this.blob.rotation.z = -v.angle;
     const bs = Math.max(0.3, 1 - v.liftZ * S / 8);
     this.blob.scale.set(bs, bs, 1);

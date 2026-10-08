@@ -572,11 +572,11 @@ export class World {
     const nCr = Math.max(2, Math.round((3 + f * 1.5) * this.fxScale));
     for (let i = 0; i < nCr; i++) {
       const a = (i / nCr) * Math.PI * 2 + Math.random() * 0.6;
-      const d = r * rnd(1.25, 1.7);
+      const d = r * rnd(1.45, 1.9);   // fuera del borde levantado (no queda enterrada ni flotando)
       this.cracks[this.crackCount % MAX_CRACKS] = { x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, size: Math.min(1.6, 0.35 + r / 40), angle: -a, type: 'crack', radial: true };
       this.crackCount++;
     }
-    this.addRoadCrack(x, y, Math.min(2.6, r / 16), scorch ? 'scorch' : 'dust');
+    // (sin calcomanía plana en el centro: flotaría sobre el cuenco; el hollín va en los colores del cráter)
     // losas de asfalto levantadas en el borde, inclinadas hacia afuera
     const surf = c.surface;
     const nSl = Math.max(3, Math.round((4 + r / 3.5) * this.fxScale));
@@ -751,7 +751,7 @@ export class World {
 
   /** Explosión visual + daño radial. Devuelve daño aplicado. */
   explosion(x, y, z, power = 1, credit = false) {
-    if (z < 25) this.addCrater(x, y, 0.5 + power * 0.9, { scorch: true });
+    const crater = z < 25 ? this.addCrater(x, y, 0.5 + power * 0.9, { scorch: true }) : null;
     fireBurst(this.particles, x, y, z + 4, Math.round(14 * power), 0.8 + power * 0.5);
     sparks(this.particles, x, y, z + 6, Math.round(18 * power), 260 * power);
     dustCloud(this.particles, x, y, Math.round(6 * power), { z: 6, size: 18 * power, color: '#4a4440', life: 2.6, rise: 30 });
@@ -761,7 +761,7 @@ export class World {
     this.addFx({ type: 'shockwave', x, y, z: z + 4, r: 6, maxR: 55 + 60 * power, life: 0.55, color: '#ffd2a0' });
     this.shake += 5 + 7 * power;
     this.haze = Math.min(1, this.haze + 0.12 * power);
-    this.addRoadCrack(x, y, 0.8 + power * 0.6, 'crater');
+    if (!crater) this.addRoadCrack(x, y, 0.8 + power * 0.6, 'crater');
     this.fires.push({ x, y, z: 4, life: 2 + power * 2 });
     if (window.SFX) window.SFX.explosion(Math.max(0.2, Math.min(3, 0.5 + power * 0.8))); else sfx.explode?.();
     const r = 50 + 40 * power;

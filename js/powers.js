@@ -256,7 +256,8 @@ export class PowersSystem {
         }
       }
       world.addFx({ type: 'ring', x: mx, y: my, r: radius, maxR: 6, life: 0.35, color: '#ff8c69' });
-      world.addRoadCrack(mx, my, 0.6 + s);
+      // v4.2: aplastar con carga fuerte hunde la calle (cráter); si no, grieta
+      if (!(s > 0.3 && world.addCrater?.(mx, my, 0.3 + s * 1.7))) world.addRoadCrack(mx, my, 0.6 + s);
       burst(world.particles, mx, my, Math.round(8 + 16 * s), '#e17055', { z: 20 });
       sfx.crush();
       this.cancelCharge();
@@ -409,7 +410,8 @@ export class PowersSystem {
         if (t.applyImpact) score += t.applyImpact(120 + 240 * s, world, t.angle, { credit: true, top: true, push: false, force: true });
         world.addFx({ type: 'ring', x: t.cx, y: t.cy, r: 10, maxR: radius * 1.2, life: 0.45, color: '#fdcb6e' });
         world.addFx({ type: 'flash', x: t.cx, y: t.cy, z: 10, intensity: 0.5 + s, life: 0.2, color: '#ffe0a0' });
-        world.addRoadCrack(t.cx, t.cy, 0.9 + s * 1.2, 'crater');
+        // v4.2: cráter real (deforma la calle); si cae sobre un edificio, la marca plana de siempre
+        if (!world.addCrater?.(t.cx, t.cy, 0.6 + s * 2.2)) world.addRoadCrack(t.cx, t.cy, 0.9 + s * 1.2, 'crater');
         dustCloud(world.particles, t.cx, t.cy, Math.round(6 + 10 * s), { size: 18, speed: 70 + 100 * s, spread: 20 });
         sparks(world.particles, t.cx, t.cy, 4, Math.round(8 + 12 * s), 260);
         sfx.slam();

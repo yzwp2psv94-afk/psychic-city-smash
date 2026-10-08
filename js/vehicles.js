@@ -566,7 +566,7 @@ export class Vehicle {
         const cs = Math.cos(this.angle), sn = Math.sin(this.angle);
         const fwd = this.vx * cs + this.vy * sn;
         const lat = -this.vx * sn + this.vy * cs;
-        const brakeD = this.flipped ? 0.65 * G : this.parked || this.isWreck ? 0.8 * G : 26;
+        const brakeD = this.flipped ? 0.65 * G : this.parked || this.isWreck ? (this._onSlope ? 0.16 * G : 0.8 * G) : 26;   // en la pendiente de un cráter se suelta y rueda
         const latD = (this.flipped ? 0.65 : 0.85) * G * (this.mass > 20 ? 1.1 : 1);
         const fwd2 = Math.sign(fwd) * Math.max(0, Math.abs(fwd) * Math.pow(0.998, dt * 60) - brakeD * dt);
         const lat2 = Math.sign(lat) * Math.max(0, Math.abs(lat) - latD * dt);
@@ -585,12 +585,35 @@ export class Vehicle {
 
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    // v4.2: cráteres — el auto baja al cuenco, la pendiente lo empuja hacia el fondo y se inclina
+    if (world.craters?.length && this.liftZ <= 0 && !this.grabbed) {
+      const cx = this.cx, cy = this.cy;
+      const h = world.groundAt(cx, cy);
+      const gx = (world.groundAt(cx + 6, cy) - world.groundAt(cx - 6, cy)) / 12;
+      const gy = (world.groundAt(cx, cy + 6) - world.groundAt(cx, cy - 6)) / 12;
+      this.groundZ = h;
+      this._onSlope = gx * gx + gy * gy > 0.01;
+      if (gx || gy) {
+        this.vx -= gx * G * 0.85 * dt; this.vy -= gy * G * 0.85 * dt;
+        if (this.static && gx * gx + gy * gy > 0.03) this.static = false;   // la chatarra también rueda adentro
+      }
+      const c = Math.cos(this.angle), sn = Math.sin(this.angle);
+      const kk = Math.min(1, dt * 10);
+      this.gPitch = (this.gPitch || 0) + (Math.atan(gx * c + gy * sn) - (this.gPitch || 0)) * kk;
+      this.gRoll = (this.gRoll || 0) + (Math.atan(-gx * sn + gy * c) - (this.gRoll || 0)) * kk;
+    } else if (this.groundZ || this.gPitch || this.gRoll) {
+      this._onSlope = false;
+      this.groundZ = 0; this.gPitch = (this.gPitch || 0) * 0.8; this.gRoll = (this.gRoll || 0) * 0.8;
+      if (Math.abs(this.gPitch) < 1e-3) this.gPitch = 0;
+      if (Math.abs(this.gRoll) < 1e-3) this.gRoll = 0;
+    }
     this.wheelSpin += this.forwardSpeed * dt * 0.28;
     this.steerVisual = this.steerAngle || 0;
     this._suspension(dt);
     // Ruedas perdidas: el buje raspa el suelo (chispas)
     if (this.liftZ <= 0 && this.speed > 40) {
-      for (const k of ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR']) {
+      for (let wi = 0; wi < 4; wi++) {
+        const k = WHEEL_KEYS[wi];
         if (this.parts[k].attached || Math.random() > 0.5) continue;
         const fx = (k.includes('F') ? 1 : -1) * this.w * 0.31, fy = (k.endsWith('L') ? -1 : 1) * this.h * 0.45;
         const c = Math.cos(this.angle), sn = Math.sin(this.angle);
@@ -631,7 +654,8 @@ export class Vehicle {
       this.rollRate *= 0.5; this.pitchRate *= 0.5;
       this.applyImpact(impact * 0.9, world, this.angle + Math.PI / 2, { credit: this.playerTouch > 0, top: upside, push: false, force: true });
       dustCloud(world.particles, this.cx, this.cy, 6, { size: 16, speed: 60 });
-      if (impact > 200) world.addRoadCrack(this.cx, this.cy, 0.9);
+      // v4.2: auto lanzado que se estrella contra el suelo → cráter según la fuerza
+      if (impact > 200 && !(world.addCrater?.(this.cx, this.cy, Math.min(2.4, (impact - 120) / 160 * Math.sqrt(this.mass / 14))))) world.addRoadCrack(this.cx, this.cy, 0.9);
     } else {
       if (impact > 30 && !upside) { this.kick(0, 0, -impact * 0.02); if (window.SFX && this.nearCam) window.SFX.tireBounce(); }
       this.vz = 0;

@@ -924,3 +924,14 @@ body.iphone-mode .touch-btn.pedal::before {
 body.iphone-mode .touch-btn.pedal.rev::before { background: linear-gradient(0deg, rgba(255, 118, 117, 0.55), rgba(255, 118, 117, 0.15)); }
 body.iphone-mode .touch-btn.pedal::after { inset: -6px; }
 body.iphone-mode .touch-btn.pedal.pressed { transform: scale(0.96); }
+
+/* ——— v4.3: barra de carga de assets (menú) ——— */
+.load-box { width: min(320px, 82%); margin: 6px auto 0; font-size: 0.7rem; color: #cfd6ff; text-align: center; transition: opacity 0.6s; }
+.load-box.done { opacity: 0; pointer-events: none; }
+.load-bar { height: 6px; border-radius: 3px; background: #ffffff22; overflow: hidden; margin-bottom: 4px; }
+.load-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6c5ce7, #a29bfe); transition: width 0.25s; }
+.btn-play.loading { opacity: 0.7; cursor: progress; }
+@media (orientation: landscape) and (max-height: 430px) {
+  .load-box { margin-top: 3px; font-size: 0.6rem; }
+  .load-bar { height: 4px; margin-bottom: 2px; }
+}

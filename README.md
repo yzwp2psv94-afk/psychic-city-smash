@@ -1,6 +1,6 @@
-# Psychic City Smash · v4.1 (3D)
+# Psychic City Smash · v4.3 (3D)
 
-Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Todas las texturas son procedurales (canvas) y no se descargan assets.
+Prototipo jugable de destrucción urbana con poderes psíquicos, inspirado en *City Smash 2* y con autos al estilo *Wreckfest* (daño progresivo, chatarra y manejo arcade-sim). Desde la v2.0 se renderiza en **3D con Three.js** (r169, vía import map desde CDN). Desde la v4.3 usa **assets CC0** (autos .glb, texturas, decals y cielo HDRI, en `assets/`) que se cargan en segundo plano; si alguno falla, el juego sigue con la versión procedural (canvas).
 
 ## Cómo abrir
 
@@ -111,6 +111,45 @@ En el menú principal:
 - **Botones**: respuesta visual inmediata (brillo + escala), áreas táctiles más grandes que el dibujo, multitáctil fiable (joystick + mirar + poder a la vez), y nada se queda "pegado" (touchcancel, dedos huérfanos, cambio de app).
 - **Rendimiento**: sin basura por cuadro en los bucles calientes (colisiones, entrada, cámara) y resolución máx. 1.5× en teléfonos.
 
+## Derrumbes realistas y cráteres (v4.2)
+
+- **Fractura en losas**: los pisos ya no se rompen en "cubitos". Salen **losas grandes de muro y placas de piso** (polígonos irregulares extruidos), muchas con **varillas dobladas**, más trozos medianos, astillas y polvo. Las losas caídas quedan apiladas en el suelo (instanciadas, tope de 900).
+- **Fachadas que se despegan**: un golpe fuerte arranca un paño de fachada que gira sobre su base, cae a la calle y se parte en paneles (con grietas, polvo y sacudida).
+- **Inclinación y "pancake"**: al colapsar, el edificio **se inclina hacia el lado más dañado** mientras los pisos se apilan uno sobre otro.
+- **Colapsos parciales**: pueden quedar **esqueletos dentados** (columnas y pisos expuestos con varillas), sobre todo en las esquinas y del lado opuesto a la caída.
+- **Cráteres reales en la calle** (Slam, Aplastar, autos lanzados, aterrizajes fuertes y explosiones):
+  - El asfalto **se hunde** en un cuenco con un **borde levantado**.
+  - **Grietas radiales**, **losas de asfalto/banqueta levantadas** en el borde, hollín (explosiones) o polvo.
+  - El tamaño escala con la fuerza; varios golpes en el mismo sitio lo agrandan.
+  - Persisten con un tope por calidad: 26 / 16 / 9.
+  - **Autos (incluso estacionados o chatarra) y el jugador ruedan hacia adentro** y se inclinan con la pendiente.
+- **Optimizado para móvil**: todo instanciado y reutilizado (sin crear objetos por cuadro), decals limitados por calidad (180 / 120 / 70) y mallas de cráter más simples en calidad baja.
+
+## Assets CC0 (v4.3)
+
+- **Carga asíncrona** con barra de progreso en el menú («⏳ CARGANDO… N %»); *Jugar* se habilita al terminar (o a los 12 s como máximo). Si un archivo falla, ese elemento queda **procedural** y el juego sigue. `?assets=0` desactiva todos los assets (aspecto anterior).
+- **Autos .glb** (8 modelos) asignados a los tipos de la física: sedán (sedán ×3 / patrulla), hatchback (sedán B), taxi, SUV, deportivo (2 variantes) y pickup. El furgón y el bus siguen siendo procedurales. Pintura recoloreada por auto, abolladuras por vértice, ruedas que giran y doblan, huecos oscuros al perder piezas, sirena en patrullas (manejadas u hostiles) y LOD lejano de 1 malla.
+- **Fachadas** (4 texturas en una textura array, elegidas por altura del edificio) con **ventanas que se siguen encendiendo** una por una (emisivas); mapas normales solo en calidad alta.
+- **Suelo**: asfalto limpio, **asfalto agrietado** (desgaste y alrededor de cráteres), baldosas de banqueta y concreto.
+- **Destrucción**: concreto roto, concreto con varillas y escombro proyectados en espacio de mundo (sin UVs) sobre losas, trozos, coronas y esqueletos; **decals** de cráter (2 variantes), atlas de grietas y hollín.
+- **Cielo HDRI** 1K (reflejos e iluminación ambiental de autos y edificios); en calidad baja usa la versión LDR (JPG/WebP) y si falla queda el cielo procedural.
+- **Móvil**: resolución por calidad (alta 1024 + normales · media 1024/512 · baja 512/256 y cielo LDR), todo se reduce en un canvas antes de subir a la GPU.
+- No se usan (todavía): `kenney_car_debris.glb` y los mapas de rugosidad (`*_rough`).
+
+### Créditos (todos CC0 1.0)
+
+Gracias a los autores; detalle por archivo en `assets/CREDITS.md`.
+
+- **Quaternius**, *LowPoly Cars* — sedan, sedan_b, taxi, police, suv, sports, sports_b (https://quaternius.com/packs/cars.html).
+- **Kenney**, *Car Kit* — pickup (y piezas sueltas aún sin usar) (https://kenney.nl/assets/car-kit).
+- **ambientCG / Lennart Demes** — Facade018A, Facade019A, Facade006, Facade020A, Concrete034, AsphaltDamageSet001 (grietas) y AsphaltDamageSet002 (cráteres) (https://ambientcg.com).
+- **Poly Haven** (https://polyhaven.com):
+  - Dimitrios Savva — Clean Asphalt.
+  - Rob Tuytel — Asphalt 02 y Burned Ground 01 (hollín).
+  - Charlotte Baglioni — Concrete Pavement 02.
+  - Amal Kumar — Rubble, Rebar Reinforced Concrete y Concrete Debris.
+  - Andreas Mischok — HDRI *Canary Wharf*.
+
 ## Autos (v4): física estilo GTA IV, daño y modelos
 
 Implementación propia (no usa código de ningún juego):
@@ -178,8 +217,12 @@ psychic-city-smash/
   js/game.js        — bucle, input, sesión, cámara, puntuación
   js/renderer3d.js  — escena Three.js (ciudad, autos, partículas, mira, cámaras)
   js/carmodel.js    — modelos de autos por tipo (loft), LOD, ruedas instanciadas, deformación
+  js/glbcar.js      — autos .glb (CC0): escala por tipo, pintura, ruedas, abolladuras, LOD
+  js/assets.js      — carga asíncrona de assets con progreso y respaldo
+  js/assetfx.js     — parches de shaders (fachadas, suelo, escombro, decals, cielo)
   js/textures.js    — texturas procedurales (calles, fachadas, grietas…)
-  js/world.js       — mapa, edificios por pisos, props, escombro, explosiones
+  js/world.js       — mapa, edificios por pisos, props, escombro, explosiones, cráteres, fachadas que caen
+  js/destruction3d.js — losas/varillas/esqueletos instanciados, coronas dentadas, mallas de cráter
   js/physics.js     — cuerpos, partículas
   js/vehicles.js    — tipos de auto, física de manejo/suspensión, IA de carriles, daño, colisiones
   js/powers.js      — poderes, carga, fuerza, atrapar/redirigir
@@ -188,8 +231,9 @@ psychic-city-smash/
   js/mobile.js      — táctil iPhone 14 + Gamepad
   js/audio.js       — efectos Web Audio
   screens/          — capturas headless
+  assets/           — modelos, texturas y HDRI CC0 (ver assets/CREDITS.md)
 ```
 
 ## Créditos / aviso
 
-Prototipo fan / sandbox educativo. No afiliado a City Smash ni Wreckfest.
+Prototipo fan / sandbox educativo. No afiliado a City Smash ni Wreckfest. Assets de terceros: ver *Créditos* en la sección v4.3 y `assets/CREDITS.md` (todos CC0).
