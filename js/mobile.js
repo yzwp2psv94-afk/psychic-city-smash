@@ -3,6 +3,34 @@
  * Joystick virtual, mirada por arrastre, botones on-screen, Gamepad API.
  */
 
+/** ¿Dispositivo táctil? (iPhone/iPad/Android) */
+export function detectTouch() {
+  if (typeof window === 'undefined') return false;
+  const coarse = !!window.matchMedia?.('(pointer: coarse)').matches;
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0 || coarse;
+}
+
+/** Límites del zoom de cámara (distancia) */
+export const ZOOM_MIN = 16;
+export const ZOOM_MAX = 80;
+
+/** Convierte textos de ayuda de teclado/mouse a lenguaje táctil */
+export function touchText(t) {
+  if (!t) return t;
+  const exact = {
+    'Conduciendo · WASD · Shift freno de mano · R enderezar · E salir · poderes +60%': 'Conduciendo · joystick · 🛑 freno · ⟲ enderezar · 🚗 salir · poderes +60%',
+    'Acércate a un auto (≈4 m) y pulsa E': 'Acércate a un auto (≈4 m) y toca 🚗 Entrar',
+    '¡Tu auto quedó destrozado! Sal con E': '¡Tu auto quedó destrozado! Sal con 🚗',
+  };
+  if (exact[t]) return exact[t];
+  return t
+    .replace(/Mantén clic/g, 'Mantén presionado')
+    .replace(/^Clic:/, 'Toca:')
+    .replace(/ · rueda = fuerza/g, ' · barra = fuerza')
+    .replace(/Mantén clic para agarrar escombros/g, 'Mantén presionado para agarrar escombros')
+    .replace(/lánzalo con TK \(1\)/g, 'lánzalo con TK');
+}
+
 /** Dimensiones lógicas iPhone 14 (CSS px, portrait) */
 export const IPHONE14 = {
   w: 390,
@@ -62,6 +90,16 @@ export class MobileControls {
     this._resetPressed = false;
     this._gpAimX = 0;        // stick derecho (analógico, -1..1)
     this._gpAimY = 0;
+
+    // Táctil v3: arrastre para apuntar con ⚡, giro de cámara, slam rápido
+    this.isTouch = detectTouch();
+    this.aimDragX = 0;
+    this.aimDragY = 0;
+    this._rotDir = 0;
+    this._restorePower = null;
+    this._canvasTouches = new Map();
+    this._press = null;   // toque de 1 dedo sobre el mundo 3D
+    this._pinch = null;   // gesto de 2 dedos (zoom + giro)
   }
 
   /** Call after DOM ready */
@@ -89,6 +127,8 @@ export class MobileControls {
     };
 
     this._bindTouch();
+    this._bindCanvasTouch();
+    this._blockPageZoom();
     this._bindGamepadEvents();
     this._bindMenuToggles();
     this._bindTouchButtons();
@@ -103,6 +143,17 @@ export class MobileControls {
     this._autoSuggest.addEventListener?.('change', applyAuto);
     applyAuto();
 
+    // Dispositivo táctil: controles táctiles SIEMPRE activos (cualquier ancho / orientación)
+    if (this.isTouch) {
+      document.body.classList.add('touch-device');
+      this.setIphoneMode(true, { silent: true, fromAuto: true });
+      const hint = document.getElementById('hintMenu');
+      if (hint) hint.textContent = 'Controles táctiles activos · joystick = mover · mantén presionado en el mapa = agarrar/cargar · suelta = lanzar · 2 dedos = zoom';
+    }
+    const onVV = () => this.game?._resize?.();
+    window.visualViewport?.addEventListener('resize', onVV);
+    window.addEventListener('orientationchange', () => setTimeout(onVV, 250));
+
     this._updateStatusUi();
   }
 
@@ -111,6 +162,9 @@ export class MobileControls {
     const btBtn = document.getElementById('btnBluetooth');
     if (iphoneBtn) {
       iphoneBtn.addEventListener('click', () => {
+        // En un teléfono/tablet real este botón solo ENCIENDE los controles
+        // (antes un toque los apagaba sin querer). Para apagarlos: Ajustes.
+        if (this.isTouch && this.iphoneMode) return;
         this._userForcedDesktop = this.iphoneMode; // if turning off, remember
         this.setIphoneMode(!this.iphoneMode);
         if (window.sfx?.ui) {/* optional */}
@@ -243,6 +297,41 @@ export class MobileControls {
       this._powerReleaseEdge = true;
     });
 
+    // ⚡ mantener + arrastrar = mover la mira; soltar = lanzar
+    const fire = this._els.btnFire;
+    if (fire) {
+      let last = null;
+      fire.addEventListener('touchstart', (e) => { const t = e.changedTouches[0]; last = { x: t.clientX, y: t.clientY, id: t.identifier }; }, { passive: true });
+      fire.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (!last || t.identifier !== last.id) continue;
+          this.aimDragX += t.clientX - last.x;
+          this.aimDragY += t.clientY - last.y;
+          last.x = t.clientX; last.y = t.clientY;
+        }
+      }, { passive: false });
+    }
+
+    // 💥 Slam rápido: selecciona Slam, mantener = levantar, soltar = golpe; luego vuelve al poder anterior
+    press(document.getElementById('touchSlam'), () => {
+      const g = this.game;
+      if (!g?.powers) return;
+      if (g.powers.selected !== 3) { this._restorePower = g.powers.selected; g.selectPower(3); }
+      this._powerFire = true;
+      this._powerFireEdge = true;
+    }, () => {
+      if (!this._powerFire) return;
+      this._powerFire = false;
+      this._powerReleaseEdge = true;
+    });
+
+    // Zoom de cámara (+ / −) y giro (mantener)
+    press(document.getElementById('touchZoomIn'), () => this.game?.zoomBy?.(-6));
+    press(document.getElementById('touchZoomOut'), () => this.game?.zoomBy?.(6));
+    press(document.getElementById('touchRotL'), () => { this._rotDir = 1; }, () => { this._rotDir = 0; });
+    press(document.getElementById('touchRotR'), () => { this._rotDir = -1; }, () => { this._rotDir = 0; });
+
     press(this._els.btnCatch, () => { this._catchHold = true; }, () => { this._catchHold = false; });
     press(this._els.btnRedirect, () => { this._redirectHold = true; }, () => { this._redirectHold = false; });
     press(this._els.btnReset, () => { this._resetPressed = true; });
@@ -340,6 +429,117 @@ export class MobileControls {
     }, { passive: false });
   }
 
+  /** Evita el zoom de página de Safari (pellizco / doble toque) */
+  _blockPageZoom() {
+    const stop = (e) => e.preventDefault();
+    for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+      document.addEventListener(ev, stop, { passive: false });
+    }
+    document.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 1) e.preventDefault();
+    }, { passive: false });
+    let lastEnd = 0;
+    document.addEventListener('touchend', (e) => {
+      const now = performance.now();
+      const tag = e.target?.tagName;
+      if (now - lastEnd < 320 && tag !== 'INPUT' && tag !== 'SELECT') e.preventDefault();
+      lastEnd = now;
+    }, { passive: false });
+    document.addEventListener('dblclick', stop, { passive: false });
+  }
+
+  /**
+   * Toques sobre el mundo 3D:
+   *  - 1 dedo: igual que el mouse (mantener = agarrar/cargar, arrastrar = apuntar, soltar = lanzar)
+   *  - 2 dedos: pellizco = zoom de cámara, arrastre = girar cámara
+   */
+  _bindCanvasTouch() {
+    const cv = this.game?.canvas || document.getElementById('gameCanvas');
+    if (!cv) return;
+    const g = () => this.game;
+    const HOLD_MS = 90; // pequeña espera para distinguir 1 dedo de un pellizco
+
+    const startPress = () => {
+      const p = this._press;
+      const game = g();
+      if (!p || p.started || this._pinch || !game?.running || game.paused) return;
+      p.started = true;
+      game.mouse.down = true;
+      game._onPowerStart?.();
+    };
+    const endPress = (cancel) => {
+      const p = this._press;
+      const game = g();
+      this._press = null;
+      if (!p || !game) return;
+      clearTimeout(p.timer);
+      if (cancel) {
+        if (p.started) { game.powers?.cancelCharge?.(); game.powers?.releaseGrab?.(); }
+      } else if (game.running && !game.paused) {
+        if (!p.started) { p.started = true; game.mouse.down = true; game._onPowerStart?.(); }
+        game._onPowerRelease?.();
+      }
+      game.mouse.down = false;
+      // Fija la mira en ese punto del mundo (relativa al jugador) al levantar el dedo
+      game.aimFromScreen?.(p.x, p.y);
+      game.mouse.inside = false;
+    };
+    const pinchInfo = () => {
+      const pts = [...this._canvasTouches.values()];
+      const [a, b] = pts;
+      return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    };
+
+    cv.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const game = g();
+      for (const t of e.changedTouches) this._canvasTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+      if (this._canvasTouches.size >= 2) {
+        if (this._press) endPress(true);
+        const pi = pinchInfo();
+        this._pinch = { d0: pi.d, dist0: game?.camDist ?? 36, mx: pi.mx, my: pi.my };
+        return;
+      }
+      if (!game?.running || game.paused) return;
+      const t = e.changedTouches[0];
+      game._syncMouse?.(t);
+      game.aimMode = 'mouse';
+      this._press = { id: t.identifier, x: t.clientX, y: t.clientY, started: false };
+      this._press.timer = setTimeout(startPress, HOLD_MS);
+    }, { passive: false });
+
+    cv.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const game = g();
+      for (const t of e.changedTouches) {
+        if (this._canvasTouches.has(t.identifier)) this._canvasTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+        if (this._press && t.identifier === this._press.id) {
+          this._press.x = t.clientX; this._press.y = t.clientY;
+          game?._syncMouse?.(t);
+          if (game) game.aimMode = 'mouse';
+        }
+      }
+      if (this._pinch && this._canvasTouches.size >= 2 && game) {
+        const pi = pinchInfo();
+        game.setZoom?.(this._pinch.dist0 * (this._pinch.d0 / pi.d));
+        const dx = pi.mx - this._pinch.mx;
+        this._pinch.mx = pi.mx; this._pinch.my = pi.my;
+        this.lookDX += dx; // arrastre con 2 dedos = girar cámara
+      }
+    }, { passive: false });
+
+    const onEnd = (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        this._canvasTouches.delete(t.identifier);
+        if (this._press && t.identifier === this._press.id) endPress(e.type === 'touchcancel');
+      }
+      if (this._canvasTouches.size < 2) this._pinch = null;
+    };
+    cv.addEventListener('touchend', onEnd, { passive: false });
+    cv.addEventListener('touchcancel', onEnd, { passive: false });
+  }
+
   _updateJoy(cx, cy, maxR) {
     let dx = cx - this._joyOrigin.x;
     let dy = cy - this._joyOrigin.y;
@@ -428,15 +628,22 @@ export class MobileControls {
     }
 
     // Arrastre de cámara (táctil)
-    if (this.iphoneMode) {
-      out.lookDX = this.lookDX; out.lookDY = this.lookDY;
-    }
+    out.lookDX = this.lookDX; out.lookDY = this.lookDY;
     this.lookDX = 0; this.lookDY = 0;
     out.catchHold = this._catchHold;
     out.redirectHold = this._redirectHold;
     if (this._resetPressed) { out.reset = true; this._resetPressed = false; }
 
     out.fireHold = !!this._powerFire;
+
+    // Arrastre sobre ⚡ = mover la mira; giro de cámara por botones
+    out.aimDragX = this.aimDragX; out.aimDragY = this.aimDragY;
+    this.aimDragX = 0; this.aimDragY = 0;
+    out.rotate = this._rotDir;
+    if (!this._powerFire && this._restorePower != null && !out.fireStart) {
+      out.restorePower = this._restorePower;
+      this._restorePower = null;
+    }
 
     // Gamepad
     if (this.bluetoothEnabled && this.gamepadSupport) {
@@ -563,7 +770,7 @@ export class MobileControls {
     // On a real narrow phone, use full visual viewport; on desktop preview, lock 390×844
     const vw = window.visualViewport?.width || window.innerWidth;
     const vh = window.visualViewport?.height || window.innerHeight;
-    if (vw <= 430 && vh >= vw) {
+    if (this.isTouch || (vw <= 430 && vh >= vw)) {
       return { w: Math.floor(vw), h: Math.floor(vh) };
     }
     // Desktop preview: fixed iPhone 14 logical size

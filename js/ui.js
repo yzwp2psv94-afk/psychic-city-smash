@@ -2,6 +2,9 @@
 
 import { POWERS } from './powers.js';
 import { sfx, setSoundEnabled } from './audio.js';
+import { touchText } from './mobile.js';
+
+const isTouchUi = () => document.body.classList.contains('iphone-mode');
 
 const MODE_LABELS = {
   sandbox: 'Sandbox libre',
@@ -79,7 +82,11 @@ export class UI {
     document.getElementById('hudScore').textContent = Math.floor(score);
     document.getElementById('hudDestroy').textContent = destroy + '%';
     document.getElementById('energyFill').style.width = `${(energy / maxEnergy) * 100}%`;
-    if (tip != null) document.getElementById('hudTip').textContent = tip;
+    if (tip != null) {
+      const el = document.getElementById('hudTip');
+      const txt = isTouchUi() ? touchText(tip) : tip;
+      if (el.textContent !== txt) el.textContent = txt;
+    }
     if (timer != null) {
       const m = Math.floor(timer / 60);
       const s = Math.floor(timer % 60);
@@ -95,7 +102,7 @@ export class UI {
         else b.style.borderColor = '';
       });
       const p = POWERS[power];
-      if (p && tip == null) document.getElementById('hudTip').textContent = p.tip;
+      if (p && tip == null) document.getElementById('hudTip').textContent = isTouchUi() ? touchText(p.tip) : p.tip;
     }
   }
 

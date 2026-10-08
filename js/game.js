@@ -10,7 +10,7 @@ import { spawnCivilians, spawnHostileWave, RivalPsychic } from './npcs.js';
 import { spawnCityTraffic, spawnParkedCars, resolveVehicleCollisions } from './vehicles.js';
 import { UI } from './ui.js';
 import { sfx } from './audio.js';
-import { MobileControls } from './mobile.js';
+import { MobileControls, ZOOM_MIN, ZOOM_MAX } from './mobile.js';
 import { Renderer3D } from './renderer3d.js';
 
 const ENTER_RADIUS = 42;      // px desde el borde del auto (≈4 m)
@@ -187,34 +187,13 @@ class Game {
       if (!this.running) return;
       e.preventDefault();
       if (e.ctrlKey || e.altKey) {
-        this.camDist = Math.max(16, Math.min(70, this.camDist + Math.sign(e.deltaY) * 3));
+        this.zoomBy(Math.sign(e.deltaY) * 3);
       } else {
         this.setForce(this.force + (e.deltaY < 0 ? 0.05 : -0.05));
       }
     }, { passive: false });
 
-    // Táctil básico (fuera de modo iPhone): tocar = poder en ese punto
-    cv.addEventListener('touchstart', e => {
-      if (this.mobile?.iphoneMode) return;
-      e.preventDefault();
-      if (!this.running || this.paused) return;
-      const t = e.touches[0];
-      this._syncMouse(t);
-      this.aimMode = 'mouse';
-      this.mouse.down = true;
-      this._onPowerStart();
-    }, { passive: false });
-    cv.addEventListener('touchmove', e => {
-      if (this.mobile?.iphoneMode) return;
-      e.preventDefault();
-      this._syncMouse(e.touches[0]);
-    }, { passive: false });
-    cv.addEventListener('touchend', e => {
-      if (this.mobile?.iphoneMode) return;
-      e.preventDefault();
-      if (this.mouse.down) this._onPowerRelease();
-      this.mouse.down = false;
-    }, { passive: false });
+    // Táctil (1 dedo = mouse, 2 dedos = zoom/giro): ver MobileControls._bindCanvasTouch
 
     const fs = document.getElementById('forceSlider');
     if (fs) {
@@ -272,6 +251,15 @@ class Game {
     if (this.powers) this.powers.setForce(this.force);
     return this.force;
   }
+
+  /** Zoom de cámara: distancia limitada a [ZOOM_MIN, ZOOM_MAX] */
+  setZoom(d) {
+    if (!Number.isFinite(d)) return this.camDist;
+    this.camDist = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, d));
+    return this.camDist;
+  }
+
+  zoomBy(delta) { return this.setZoom(this.camDist + delta); }
 
   cycleForcePreset() {
     const i = FORCE_PRESETS.findIndex(p => p > this.force + 0.01);
@@ -561,6 +549,23 @@ class Game {
       this.aimOffset.r += mob.aimStickX * 320 * dt;
       this.aimOffset.f -= mob.aimStickY * 320 * dt;
     }
+    // Arrastre con el dedo sobre ⚡: mueve la mira (derecha/izquierda, más lejos/cerca)
+    if (mob.aimDragX || mob.aimDragY) {
+      if (this.aimMode === 'mouse') {
+        const a = this._anchor();
+        const { fx, fy } = this._camBasis();
+        const dx = this.aim.x - a.x, dy = this.aim.y - a.y;
+        this.aimOffset.f = dx * fx + dy * fy;
+        this.aimOffset.r = dx * -fy + dy * fx;
+      }
+      this.aimMode = 'offset';
+      this.aimOffset.r += mob.aimDragX * 1.6;
+      this.aimOffset.f = Math.max(20, this.aimOffset.f - mob.aimDragY * 1.6);
+    }
+    if (mob.rotate) {
+      if (this.drivenCar) this.lookOffset += mob.rotate * 1.8 * dt;
+      else this.camYaw += mob.rotate * 1.8 * dt;
+    }
     if (mob.lookDX || mob.lookDY) {
       if (this.drivenCar) this.lookOffset += mob.lookDX * 0.008;
       else this.camYaw -= mob.lookDX * 0.008;
@@ -639,6 +644,11 @@ class Game {
     if (this._mobileFireHeld && !mob.fireHold && !mob.fireStart) {
       this._onPowerRelease();
       this._mobileFireHeld = false;
+    }
+    if (mob.restorePower != null) this._pendingRestore = mob.restorePower;
+    if (this._pendingRestore != null && !this._mobileFireHeld && !this.powers.slamPhase && !this.powers.charging) {
+      const rp = this._pendingRestore; this._pendingRestore = null;
+      this.selectPower(rp);
     }
     // Atrapar (táctil / LT a pie) y redirigir (táctil / B a pie)
     const catchHold = mob.catchHold || (!driving && mob.gpLT > 0.4);
@@ -830,7 +840,7 @@ class Game {
       maxEnergy: player.maxEnergy,
       tip: this.tipTimer > 0 ? this.currentTip : (this.drivenCar
         ? (iphone ? 'Joystick conducir · 🛑 freno · 🚗 salir · ⟲ enderezar' : 'E salir · Shift freno de mano · R enderezar · clic medio mirar')
-        : (iphone ? 'Joystick mover · arrastra derecha: cámara · toca: apuntar · mantén ⚡ para cargar'
+        : (iphone ? 'Joystick: mover · mantén presionado en el mapa: agarrar · suelta: lanzar · 2 dedos: zoom/girar'
           : POWERS[this.powers.selected].tip)),
       timer: this.mode === 'timed' ? this.timer : null,
       power: this.powers.selected,
@@ -852,7 +862,7 @@ class Game {
   render(dt) {
     const r3d = this.r3d;
     const camState = this.drivenCar
-      ? { mode: 'drive', car: this.drivenCar, lookOffset: this.lookOffset, shake: this.shakeAmt }
+      ? { mode: 'drive', car: this.drivenCar, lookOffset: this.lookOffset, shake: this.shakeAmt, zoom: this.camDist / (this.mobile?.iphoneMode ? 44 : 36) }
       : { mode: 'foot', x: this.player.x, y: this.player.y, yaw: this.camYaw, pitch: 0.98, dist: this.camDist, shake: this.shakeAmt };
     r3d.updateCamera(camState, dt);
     r3d.sync(this, dt);

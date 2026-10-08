@@ -47,11 +47,14 @@ Luego visita `http://localhost:8080`.
 
 En el menú principal:
 
-1. **Móvil · iPhone 14**: layout de 390×844 con HUD táctil.
-   - Joystick (mover o conducir) y arrastre en la mitad derecha para girar la cámara; un toque corto apunta ahí.
-   - **⚡ Poder**: mantener = cargar, soltar = lanzar.
-   - Botones Entrar, Freno, Pausa, **🧊 Atrapar**, **↗ Redirigir** (mantener/soltar) y **⟲** (enderezar/cámara).
-   - Slider **Fuerza** sobre el joystick y barra de poderes 1–5.
+1. **Móvil · iPhone 14**: HUD táctil. En un iPhone/iPad/Android real se activa **solo** (cualquier orientación, pantalla completa); en la compu es una vista previa de 390×844.
+   - **Joystick** izquierdo: mover o conducir.
+   - **Tocar / mantener en el mapa 3D** = igual que el mouse: mantener = agarrar y cargar, arrastrar = apuntar, soltar = lanzar.
+   - **2 dedos**: pellizcar = zoom de la cámara (no de la página), deslizar = girar cámara. Botones **− / +** (zoom) y **↺ / ↻** (girar).
+   - **⚡ Poder**: mantener = agarrar/cargar, arrastrar el dedo = mover la mira, soltar = lanzar.
+   - **💥 Slam** rápido, **🚗 Entrar**, **🧊 Atrapar**, **↗ Redirigir**, **🛑 Freno**, **⟲** (enderezar/cámara). Pausa arriba a la derecha.
+   - Slider **Fuerza** sobre el joystick y barra de poderes 1–5 abajo (tocar = elegir).
+   - En escritorio: **Ctrl + rueda** = zoom (rueda sola = fuerza).
 2. **Control Bluetooth**: Gamepad API (se puede combinar con el layout iPhone).
 
 | Gamepad | Acción |

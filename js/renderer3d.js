@@ -923,9 +923,10 @@ export class Renderer3D {
       let dh = heading - this._chaseHeading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
       this._chaseHeading += dh * (1 - Math.exp(-dt * 4.5));
       const h = this._chaseHeading;
-      const back = 7.2 + Math.min(2.2, spd / 160);
+      const zf = Math.max(0.5, Math.min(2, state.zoom || 1));
+      const back = (7.2 + Math.min(2.2, spd / 160)) * zf;
       const tx = c.cx * S, tz = c.cy * S, ty = c.liftZ * S;
-      const desired = _v.set(tx - Math.cos(h) * back, ty + 2.6 + Math.min(0.8, spd / 400), tz - Math.sin(h) * back);
+      const desired = _v.set(tx - Math.cos(h) * back, ty + (2.6 + Math.min(0.8, spd / 400)) * zf, tz - Math.sin(h) * back);
       this.camPos.lerp(desired, 1 - Math.exp(-dt * 9));
       this.camTarget.lerp(_p.set(tx + Math.cos(h) * 3.5, ty + 1.0, tz + Math.sin(h) * 3.5), 1 - Math.exp(-dt * 12));
       fov = 62 + Math.min(14, spd / 25);

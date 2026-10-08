@@ -68,7 +68,7 @@
 
         <button id="btnPlay" class="btn-play">▶ JUGAR</button>
         <button id="btnSettings" class="btn-gear" title="Ajustes">⚙️</button>
-        <p class="hint-menu" id="hintMenu">WASD mover · Mouse apuntar · Mantén clic = cargar · Rueda = fuerza · Q atrapar · F redirigir · E auto</p>
+        <p class="hint-menu" id="hintMenu">WASD mover · Mouse apuntar · Mantén clic = cargar · Rueda = fuerza · Q atrapar · F redirigir · E auto · Ctrl+rueda zoom</p>
       </div>
     </div>
 
@@ -166,8 +166,8 @@
         <div id="hudTip" class="hud-tip">Mantén clic para agarrar escombros · Suelta para lanzar</div>
 
         <div class="hud-actions">
-          <button id="btnPause" class="btn-hud">⏸ Pausa</button>
-          <button id="btnEnd" class="btn-hud danger">Fin sesión</button>
+          <button id="btnPause" class="btn-hud">⏸<span class="lbl"> Pausa</span></button>
+          <button id="btnEnd" class="btn-hud danger">Fin<span class="lbl"> sesión</span></button>
         </div>
       </div>
 
@@ -180,14 +180,22 @@
           <span class="joy-label">Mover</span>
         </div>
 
+        <div class="touch-cam" aria-label="Cámara">
+          <button type="button" id="touchZoomOut" class="touch-btn cam" aria-label="Alejar cámara">−</button>
+          <button type="button" id="touchZoomIn" class="touch-btn cam" aria-label="Acercar cámara">+</button>
+          <button type="button" id="touchRotL" class="touch-btn cam" aria-label="Girar cámara a la izquierda">↺</button>
+          <button type="button" id="touchRotR" class="touch-btn cam" aria-label="Girar cámara a la derecha">↻</button>
+        </div>
+
         <div class="touch-actions">
-          <button type="button" id="touchFire" class="touch-btn fire" aria-label="Usar poder">⚡ Poder</button>
+          <button type="button" id="touchFire" class="touch-btn fire" aria-label="Usar poder: mantén para agarrar y cargar, arrastra para apuntar, suelta para lanzar">⚡ Poder <small>mantén · arrastra · suelta</small></button>
+          <button type="button" id="touchSlam" class="touch-btn slam" aria-label="Slam">💥 Slam</button>
           <button type="button" id="touchEnter" class="touch-btn enter" aria-label="Entrar o salir del auto">🚗 Entrar</button>
-          <button type="button" id="touchBrake" class="touch-btn brake" aria-label="Freno de mano">🛑 Freno</button>
-          <button type="button" id="touchPause" class="touch-btn pause" aria-label="Pausa">⏸</button>
           <button type="button" id="touchCatch" class="touch-btn catch" aria-label="Atrapar / congelar">🧊 Atrapar</button>
           <button type="button" id="touchRedirect" class="touch-btn redirect" aria-label="Redirigir congelados">↗ Redirigir</button>
+          <button type="button" id="touchBrake" class="touch-btn brake" aria-label="Freno de mano">🛑 Freno</button>
           <button type="button" id="touchReset" class="touch-btn reset" aria-label="Enderezar auto / cámara">⟲</button>
+          <button type="button" id="touchPause" class="touch-btn pause hidden" aria-label="Pausa">⏸</button>
         </div>
 
         <div class="touch-force" aria-label="Fuerza psíquica">

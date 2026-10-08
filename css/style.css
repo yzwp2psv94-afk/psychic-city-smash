@@ -612,3 +612,111 @@ body.iphone-mode .hud-tip {
   position: absolute; left: 0; right: 0; margin: 0;
   top: calc(var(--safe-top) + 186px);
 }
+
+/* ——————————————— v3 · Táctil (iPhone Safari, vertical y horizontal) ——————————————— */
+:root {
+  --ctrl-b: max(var(--safe-bottom), 10px);   /* encima de la barra de Safari / home indicator */
+  --pow-h: 50px;                              /* fila de poderes */
+  --row2-b: calc(var(--ctrl-b) + var(--pow-h) + 12px); /* joystick y botones */
+}
+html, body { height: 100%; height: 100dvh; }
+body.touch-device, body.touch-device * { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+#gameCanvas, #touchHud, .touch-hud button, .joy-base { touch-action: none; }
+
+/* Teléfono/tablet real: pantalla completa en cualquier orientación (sin marco de vista previa) */
+body.touch-device.iphone-mode #gameScreen {
+  width: 100%; height: 100%;
+  left: 0; top: 0; right: 0; bottom: 0; transform: none;
+  border-radius: 0; box-shadow: none; max-width: none; max-height: none;
+}
+body.touch-device #iphoneFrame { display: none !important; }
+
+/* La mira ahora se controla tocando el mundo 3D directamente */
+.look-zone { display: none !important; }
+
+/* HUD compacto */
+body.iphone-mode .hud-top { gap: 0.25rem; padding: 0.35rem 0.4rem; padding-right: 7.2rem; }
+body.iphone-mode .hud-box { min-width: 0; padding: 0.18rem 0.45rem; border-radius: 7px; }
+body.iphone-mode .hud-label { font-size: 0.5rem; }
+body.iphone-mode .hud-box > span:last-child { font-size: 0.8rem; }
+body.iphone-mode .hud-energy { padding: 0.15rem 0.5rem; width: min(220px, 60%); }
+body.iphone-mode .energy-bar { height: 7px; }
+body.iphone-mode .hud-actions { top: calc(0.35rem + var(--safe-top)); right: calc(0.4rem + var(--safe-right)); gap: 0.25rem; flex-direction: row; bottom: auto; }
+body.iphone-mode .hud-actions #btnPause { display: inline-block; }
+body.iphone-mode .btn-hud { padding: 0.45rem 0.55rem; font-size: 0.72rem; min-height: 34px; }
+body.iphone-mode .btn-hud .lbl { display: none; }
+body.iphone-mode .charge-meter { top: calc(var(--safe-top) + 78px); width: min(260px, 66%); padding: 0.15rem 0.45rem; }
+body.iphone-mode .hud-tip {
+  top: calc(var(--safe-top) + 108px);
+  font-size: 0.66rem; padding: 0 1rem;
+}
+@media (max-width: 430px) {
+  body.iphone-mode #hud .hud-top > .hud-box:first-child { display: none; } /* "Modo" */
+}
+
+/* Fila de poderes (tocar = seleccionar) */
+body.iphone-mode .touch-powers { bottom: var(--ctrl-b); gap: 5px; }
+body.iphone-mode .touch-pow { width: 52px; height: var(--pow-h); font-size: 0.8rem; }
+.touch-pow.active { border-color: var(--accent); background: #2a2360ee; box-shadow: 0 0 12px #6c5ce799; }
+
+/* Joystick izquierdo */
+body.iphone-mode .joy-base {
+  left: calc(10px + var(--safe-left));
+  bottom: var(--row2-b);
+  width: 128px; height: 128px;
+  background: radial-gradient(circle, #ffffff14 0%, #0b122088 70%);
+  border: 2px solid #ffffff55;
+  box-shadow: 0 0 0 1px #0006, 0 6px 18px #0007;
+}
+body.iphone-mode .joy-knob { width: 56px; height: 56px; }
+
+/* Fuerza: encima del joystick */
+body.iphone-mode .touch-force { left: calc(10px + var(--safe-left)); bottom: calc(var(--row2-b) + 128px + 22px); width: 128px; }
+
+/* Botones de acción derechos */
+body.iphone-mode .touch-actions {
+  right: calc(10px + var(--safe-right));
+  bottom: var(--row2-b);
+  grid-template-columns: repeat(3, 1fr);
+  width: 204px; gap: 6px;
+}
+body.iphone-mode .touch-btn { min-height: 44px; font-size: 0.66rem; padding: 0.3rem 0.25rem; }
+body.iphone-mode .touch-btn.fire {
+  grid-column: 1 / -1; min-height: 64px; font-size: 1.05rem;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1;
+}
+.touch-btn.fire small { font-size: 0.56rem; font-weight: 600; opacity: 0.8; }
+.touch-btn.slam { border-color: #fdcb6e99; color: #ffeaa7; }
+.touch-btn.pressed { transform: scale(0.95); filter: brightness(1.3); }
+body:not(.driving) .touch-btn.brake { opacity: 0.45; }
+
+/* Cámara: zoom − / + y giro ↺ ↻ */
+.touch-cam {
+  position: absolute; display: flex; gap: 6px; pointer-events: auto;
+  right: calc(10px + var(--safe-right));
+  bottom: calc(var(--row2-b) + 64px + 44px * 2 + 6px * 2 + 8px);
+}
+body.iphone-mode .touch-btn.cam {
+  width: 44px; min-height: 38px; font-size: 1.1rem; padding: 0; border-radius: 12px;
+  background: #0b1220cc;
+}
+
+/* Horizontal (iPhone acostado): poca altura */
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --pow-h: 44px; --row2-b: var(--ctrl-b); }
+  body.iphone-mode .hud-top { padding-right: 6.5rem; padding-left: calc(0.4rem + var(--safe-left)); }
+  body.iphone-mode .hud-energy { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top) + 6px); width: 200px; }
+  body.iphone-mode .charge-meter { top: calc(var(--safe-top) + 40px); width: 260px; }
+  body.iphone-mode .hud-tip { top: calc(var(--safe-top) + 66px); left: 25%; right: 25%; }
+  body.iphone-mode .joy-base { width: 120px; height: 120px; left: calc(14px + var(--safe-left)); bottom: var(--ctrl-b); }
+  body.iphone-mode .touch-force { left: calc(14px + var(--safe-left)); bottom: calc(var(--ctrl-b) + 120px + 16px); width: 120px; }
+  body.iphone-mode .touch-actions {
+    right: calc(12px + var(--safe-right)); bottom: var(--ctrl-b);
+    grid-template-columns: repeat(4, 1fr); width: 252px;
+  }
+  body.iphone-mode .touch-btn { min-height: 40px; }
+  body.iphone-mode .touch-btn.fire { grid-column: span 2; min-height: 56px; font-size: 0.95rem; }
+  .touch-cam { right: calc(12px + var(--safe-right)); bottom: calc(var(--ctrl-b) + 56px + 40px + 6px + 8px); }
+  body.iphone-mode .touch-powers { left: calc(var(--safe-left) + 150px); transform: none; gap: 4px; }
+  body.iphone-mode .touch-pow { width: 42px; font-size: 0.72rem; }
+}
