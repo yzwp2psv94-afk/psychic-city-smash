@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Psychic City Smash</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A7%A0%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Three.js desde CDN (sin build ni descargas de assets) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- Menú principal -->
+    <div id="menu" class="screen">
+      <div class="menu-panel">
+        <div class="menu-badge">v2.0 · 3D</div>
+        <h1 class="title">
+          <span class="title-glow">PSYCHIC</span>
+          <span class="title-main">CITY SMASH</span>
+        </h1>
+        <p class="tagline">Destrucción psíquica · Arena urbana</p>
+
+        <div class="mode-select" id="modeSelect">
+          <button class="mode-btn active" data-mode="sandbox">
+            <span class="mode-icon">🏙️</span>
+            <span class="mode-name">Sandbox libre</span>
+            <span class="mode-desc">Destruye sin límite</span>
+          </button>
+          <button class="mode-btn" data-mode="timed">
+            <span class="mode-icon">⏱️</span>
+            <span class="mode-name">Tiempo límite</span>
+            <span class="mode-desc">2 minutos de caos</span>
+          </button>
+          <button class="mode-btn" data-mode="duel">
+            <span class="mode-icon">⚔️</span>
+            <span class="mode-name">Pelea psíquica</span>
+            <span class="mode-desc">Vs rival psíquico</span>
+          </button>
+          <button class="mode-btn" data-mode="survival">
+            <span class="mode-icon">💀</span>
+            <span class="mode-name">Supervivencia</span>
+            <span class="mode-desc">Oleadas hostiles</span>
+          </button>
+        </div>
+
+        <div class="device-select" id="deviceSelect">
+          <button type="button" id="btnIphoneMode" class="device-btn" title="Vista 390×844 · controles táctiles">
+            <span class="device-icon">📱</span>
+            <span class="device-name">Móvil · iPhone 14</span>
+            <span class="device-desc">390×844 · tactil</span>
+          </button>
+          <button type="button" id="btnBluetooth" class="device-btn" title="Mando Bluetooth / Gamepad">
+            <span class="device-icon">🎮</span>
+            <span class="device-name">Control Bluetooth</span>
+            <span class="device-desc">Gamepad API</span>
+          </button>
+        </div>
+
+        <button id="btnPlay" class="btn-play">▶ JUGAR</button>
+        <button id="btnSettings" class="btn-gear" title="Ajustes">⚙️</button>
+        <p class="hint-menu" id="hintMenu">WASD mover · Mouse apuntar · Mantén clic = cargar · Rueda = fuerza · Q atrapar · F redirigir · E auto</p>
+      </div>
+    </div>
+
+    <!-- Ajustes -->
+    <div id="settings" class="screen hidden">
+      <div class="menu-panel small">
+        <h2>Ajustes</h2>
+        <label class="setting-row">
+          <span>Sonido</span>
+          <input type="checkbox" id="optSound" checked />
+        </label>
+        <label class="setting-row">
+          <span>Temblor de pantalla</span>
+          <input type="checkbox" id="optShake" checked />
+        </label>
+        <label class="setting-row">
+          <span>Móvil · iPhone 14</span>
+          <input type="checkbox" id="optIphone" />
+        </label>
+        <label class="setting-row">
+          <span>Control Bluetooth</span>
+          <input type="checkbox" id="optBluetooth" />
+        </label>
+        <button id="btnSettingsBack" class="btn-secondary">Volver</button>
+      </div>
+    </div>
+
+    <!-- Marco iPhone (preview en escritorio) -->
+    <div id="iphoneFrame" class="iphone-frame hidden" aria-hidden="true">
+      <div class="iphone-notch"></div>
+      <div class="iphone-home"></div>
+    </div>
+
+    <!-- Juego -->
+    <div id="gameScreen" class="screen hidden">
+      <canvas id="gameCanvas"></canvas>
+      <canvas id="hud2d"></canvas>
+      <div id="enterPrompt" class="enter-prompt hidden">E · Entrar</div>
+
+      <div id="hud">
+        <div class="hud-top">
+          <div class="hud-box">
+            <span class="hud-label">Modo</span>
+            <span id="hudMode">Sandbox</span>
+          </div>
+          <div class="hud-box">
+            <span class="hud-label">Puntuación</span>
+            <span id="hudScore">0</span>
+          </div>
+          <div class="hud-box">
+            <span class="hud-label">Destrucción</span>
+            <span id="hudDestroy">0%</span>
+          </div>
+          <div class="hud-box hidden" id="hudTimerBox">
+            <span class="hud-label">Tiempo</span>
+            <span id="hudTimer">2:00</span>
+          </div>
+          <div class="hud-box gp-status hidden" id="gpStatus">Sin control</div>
+        </div>
+
+        <div class="hud-energy">
+          <span class="hud-label">Energía psíquica</span>
+          <div class="energy-bar"><div id="energyFill"></div></div>
+        </div>
+
+        <div class="hud-powers" id="powerBar">
+          <button class="power-btn active" data-power="0" title="Telequinesis (1)">
+            <span>1</span><small>TK</small>
+          </button>
+          <button class="power-btn" data-power="1" title="Onda de choque (2)">
+            <span>2</span><small>Onda</small>
+          </button>
+          <button class="power-btn" data-power="2" title="Aplastar (3)">
+            <span>3</span><small>Aplastar</small>
+          </button>
+          <button class="power-btn" data-power="3" title="Levitación / Slam (4)">
+            <span>4</span><small>Slam</small>
+          </button>
+          <button class="power-btn" data-power="4" title="Escudo (5)">
+            <span>5</span><small>Escudo</small>
+          </button>
+        </div>
+
+        <div id="chargeMeter" class="charge-meter">
+          <div class="charge-bar"><div id="chargeFill"></div></div>
+          <span id="chargeLabel">Fuerza 60%</span>
+        </div>
+
+        <div class="force-panel" title="Fuerza psíquica (rueda del mouse / [ ])">
+          <span class="hud-label">Fuerza</span>
+          <input type="range" id="forceSlider" min="5" max="100" step="1" value="60" />
+          <span id="forceValue">60%</span>
+        </div>
+
+        <div id="hudTip" class="hud-tip">Mantén clic para agarrar escombros · Suelta para lanzar</div>
+
+        <div class="hud-actions">
+          <button id="btnPause" class="btn-hud">⏸ Pausa</button>
+          <button id="btnEnd" class="btn-hud danger">Fin sesión</button>
+        </div>
+      </div>
+
+      <!-- Controles táctiles iPhone 14 -->
+      <div id="touchHud" class="touch-hud hidden">
+        <div id="lookZone" class="look-zone" aria-label="Mirar / apuntar"></div>
+
+        <div id="joyBase" class="joy-base" aria-label="Mover">
+          <div id="joyKnob" class="joy-knob"></div>
+          <span class="joy-label">Mover</span>
+        </div>
+
+        <div class="touch-actions">
+          <button type="button" id="touchFire" class="touch-btn fire" aria-label="Usar poder">⚡ Poder</button>
+          <button type="button" id="touchEnter" class="touch-btn enter" aria-label="Entrar o salir del auto">🚗 Entrar</button>
+          <button type="button" id="touchBrake" class="touch-btn brake" aria-label="Freno de mano">🛑 Freno</button>
+          <button type="button" id="touchPause" class="touch-btn pause" aria-label="Pausa">⏸</button>
+          <button type="button" id="touchCatch" class="touch-btn catch" aria-label="Atrapar / congelar">🧊 Atrapar</button>
+          <button type="button" id="touchRedirect" class="touch-btn redirect" aria-label="Redirigir congelados">↗ Redirigir</button>
+          <button type="button" id="touchReset" class="touch-btn reset" aria-label="Enderezar auto / cámara">⟲</button>
+        </div>
+
+        <div class="touch-force" aria-label="Fuerza psíquica">
+          <span>Fuerza</span>
+          <input type="range" id="touchForce" min="5" max="100" step="1" value="60" />
+        </div>
+
+        <div class="touch-powers" id="touchPowers">
+          <button type="button" class="touch-pow" data-touch-power="0">1<br/><small>TK</small></button>
+          <button type="button" class="touch-pow" data-touch-power="1">2<br/><small>Onda</small></button>
+          <button type="button" class="touch-pow" data-touch-power="2">3<br/><small>Aplast</small></button>
+          <button type="button" class="touch-pow" data-touch-power="3">4<br/><small>Slam</small></button>
+          <button type="button" class="touch-pow" data-touch-power="4">5<br/><small>Escudo</small></button>
+        </div>
+      </div>
+
+      <!-- Overlay pausa / fin -->
+      <div id="overlay" class="overlay hidden">
+        <div class="overlay-panel">
+          <h2 id="overlayTitle">Pausa</h2>
+          <p id="overlayMsg"></p>
+          <div class="overlay-stats" id="overlayStats"></div>
+          <div class="overlay-btns">
+            <button id="btnResume" class="btn-play small">Continuar</button>
+            <button id="btnRestart" class="btn-secondary">Nueva sesión</button>
+            <button id="btnMenu" class="btn-secondary">Menú</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>
